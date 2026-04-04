@@ -1,109 +1,121 @@
 # PrintMoney 🖨️💰
 
-**Gestor de ganancias, gastos e ingresos netos para un negocio de impresión 3D.**
+**Profit, expense, and net income manager for a 3D printing business.**
+
+A sleek desktop application built with Python and CustomTkinter to help small 3D printing businesses track orders, manage expenses, monitor inventory, and generate professional invoices — all from a single dashboard.
 
 ---
 
-## Instalación
+## Installation
 
-### 1. Requisitos
-- Python 3.10 o superior
+### 1. Requirements
+- Python 3.10 or higher
 - Windows 10 / 11
 
-### 2. Instalar dependencias
+### 2. Install dependencies
 
 ```bash
 cd PrintMoney
 pip install -r requirements.txt
 ```
 
-### 3. Ejecutar la aplicación
+### 3. Run the application
 
 ```bash
 python main.py
 ```
 
-La base de datos `data/printmoney.db` se creará automáticamente en el primer arranque.
+The database `data/printmoney.db` is created automatically on first launch.
 
 ---
 
-## Estructura del proyecto
+## Project Structure
 
 ```
 PrintMoney/
-├── main.py              # Punto de entrada – ventana principal y sidebar
-├── db_manager.py        # Base de datos SQLite (esquema + CRUD)
-├── requirements.txt     # Dependencias Python
-├── config.json          # Configuración del negocio
+├── main.py              # Entry point – main window & sidebar
+├── db_manager.py        # SQLite database (schema + CRUD)
+├── requirements.txt     # Python dependencies
+├── config.json          # Business configuration
 ├── assets/
-│   └── icons/           # Iconos de la interfaz (generados automáticamente)
+│   └── icons/           # UI icons (auto-generated on first run)
 ├── data/
-│   ├── printmoney.db    # Base de datos (se crea al iniciar)
-│   └── backups/         # Backups diarios automáticos
+│   ├── printmoney.db    # Database (created on launch)
+│   └── backups/         # Automatic daily backups
 ├── ui/
-│   ├── dashboard.py     # Dashboard con KPIs y gráfico
-│   ├── orders.py        # Gestión de pedidos
-│   ├── expenses.py      # Gestión de gastos
-│   ├── inventory.py     # Inventario de filamentos
-│   ├── clients.py       # Gestión de clientes
-│   ├── reports.py       # Reportes y gráficos
-│   ├── calendar.py      # Calendario de entregas
-│   ├── calculator.py    # Calculadora flotante de costo
-│   └── settings.py      # Configuración general
+│   ├── dashboard.py     # Dashboard with KPIs and charts
+│   ├── orders.py        # Order management
+│   ├── expenses.py      # Expense tracking
+│   ├── inventory.py     # Filament inventory
+│   ├── clients.py       # Client management & CRM
+│   ├── catalog.py       # Product catalog for quick orders
+│   ├── reports.py       # Reports and analytics
+│   ├── calendar.py      # Delivery calendar
+│   ├── calculator.py    # Floating cost calculator
+│   └── settings.py      # General settings
 └── utils/
-    ├── pdf_invoice.py   # Generador de facturas PDF
-    ├── export.py        # Exportar a Excel/PDF
-    └── notifications.py # Notificaciones de Windows
+    ├── i18n.py          # Internationalization (EN/ES)
+    ├── pdf_invoice.py   # PDF invoice & quote generator
+    ├── export.py        # Export to Excel/PDF
+    └── notifications.py # Windows notifications
 ```
 
 ---
 
-## Características principales
+## Features
 
-| Módulo | Función |
-|--------|---------|
-| 📊 Dashboard | KPIs del mes, gráfico de ganancias, pedidos recientes |
-| 📦 Pedidos | CRUD completo, descuento automático de inventario, facturas PDF |
-| 💸 Gastos | Categorías editables, gastos recurrentes |
-| 🧵 Inventario | Stock de filamentos con alertas de nivel bajo |
-| 👥 Clientes | Historial de pedidos y estadísticas por cliente |
-| 📈 Reportes | Gráficos de barras, línea y pastel + exportar Excel/PDF |
-| 📅 Calendario | Vista mensual con fechas de entrega marcadas |
-| ⚡ Calculadora | Cálculo de costo rápido flotante |
-| ⚙️ Configuración | Datos del negocio, idioma (ES/EN), backup, notificaciones |
-
----
-
-## Configuración inicial
-
-1. Ve a **Configuración** en la barra lateral.
-2. Completa los datos de tu negocio (nombre, dirección, logo).
-3. Ajusta la **tarifa por hora** según tu costo.
-4. Configura el **margen objetivo** para recibir alertas cuando una venta no alcance el margen.
-5. Carga tu logo en formato `.png` para que aparezca en las facturas.
+| Module | Description |
+|--------|-------------|
+| 📊 **Dashboard** | Monthly KPIs, profit chart, recent orders at a glance |
+| 📦 **Orders** | Full CRUD, automatic inventory deduction, PDF invoices |
+| 💸 **Expenses** | Editable categories, recurring expenses |
+| 🧵 **Inventory** | Filament stock tracking with low-level alerts |
+| 📋 **Catalog** | Saved product designs for quick order entry |
+| 👥 **Clients** | Order history, per-client stats, and basic CRM |
+| 📈 **Reports** | Bar, line, and pie charts + Excel/PDF export |
+| 📅 **Calendar** | Monthly view with delivery dates highlighted |
+| ⚡ **Calculator** | Floating quick-cost calculator |
+| ⚙️ **Settings** | Business info, language (EN/ES), backup, notifications |
 
 ---
 
-## Notas técnicas
+## Getting Started
 
-- **Base de datos**: SQLite en `data/printmoney.db`
-- **Backup automático**: diario en `data/backups/backup_YYYY-MM-DD.db`
-- **Autoguardado**: cada 10 minutos (configurable)
-- **Notificaciones**: usa `win10toast` con fallback a `plyer`
+1. Open **Settings** from the sidebar.
+2. Fill in your business details (name, address, logo).
+3. Set your **hourly rate** based on your costs.
+4. Configure the **target margin** to get alerts when a sale falls below it.
+5. Upload your logo as a `.png` file so it appears on invoices.
 
 ---
 
-## Solución de problemas
+## Technical Notes
 
-**Error `No module named 'win10toast'`:**
+- **Database**: SQLite stored at `data/printmoney.db`
+- **Auto-backup**: Daily backups saved to `data/backups/backup_YYYY-MM-DD.db`
+- **Auto-save**: Every 10 minutes (configurable)
+- **Notifications**: Uses `win10toast` with `plyer` fallback
+- **Language**: Bilingual support — switch between English and Spanish instantly
+
+---
+
+## Troubleshooting
+
+**`No module named 'win10toast'`:**
 ```bash
 pip install win10toast
 ```
 
-**El calendario no aparece:**
+**Calendar not showing:**
 ```bash
 pip install tkcalendar
 ```
 
-**Error con iconos:**  
-Los iconos se generan automáticamente como placeholders en la primera ejecución. Para usar iconos Feather reales, descarga los PNG de [feathericons.com](https://feathericons.com) y colócalos en `assets/icons/` con los nombres: `home.png`, `orders.png`, `expenses.png`, `inventory.png`, `clients.png`, `reports.png`, `calendar.png`, `calculator.png`, `settings.png`.
+**Icon issues:**  
+Placeholder icons are auto-generated on first launch. To use real Feather icons, download the PNGs from [feathericons.com](https://feathericons.com) and place them in `assets/icons/` with these names: `home.png`, `orders.png`, `expenses.png`, `inventory.png`, `clients.png`, `reports.png`, `calendar.png`, `calculator.png`, `settings.png`.
+
+---
+
+## License
+
+This project is open source. Feel free to use, modify, and distribute.
