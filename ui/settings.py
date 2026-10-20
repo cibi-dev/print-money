@@ -23,11 +23,16 @@ COLOR_HOVER  = "#2A2A2A"
 
 
 def cargar_config():
-    with open(os.path.join(BASE_DIR, "config.json"), "r", encoding="utf-8") as f:
-        return json.load(f)
+    """Lee config.json. Un fichero ausente o corrupto no debe romper la app."""
+    try:
+        with open(os.path.join(BASE_DIR, "config.json"), "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
 
 
 def guardar_config(cfg):
+    """Escribe config.json. Lanza OSError si el destino no es escribible."""
     with open(os.path.join(BASE_DIR, "config.json"), "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=4, ensure_ascii=False)
 
@@ -186,20 +191,18 @@ class SettingsView(ctk.CTkFrame):
             self.ent_backup.insert(0, dir_)
 
     def _hacer_backup_manual(self):
-        import db_manager, shutil
-        from datetime import date as dt_date
-        src = os.path.join(BASE_DIR, "data", "printmoney.db")
-        bk_dir = self.ent_backup.get() or "data/backups"
-        if not os.path.isabs(bk_dir):
-            bk_dir = os.path.join(BASE_DIR, bk_dir)
-        os.makedirs(bk_dir, exist_ok=True)
-        nombre = f"backup_manual_{dt_date.today()}.db"
-        dst = os.path.join(bk_dir, nombre)
-        if os.path.exists(src):
-            shutil.copy2(src, dst)
-            messagebox.showinfo(T("backup"), T("settings_backup_ok", path=dst))
-        else:
+        import db_manager
+        try:
+            # La copia usa la API de backup de SQLite: `shutil.copy2` sobre un
+            # fichero abierto puede dejar una imagen inconsistente.
+            dst = db_manager.hacer_backup_manual()
+        except FileNotFoundError:
             messagebox.showwarning(T("warning"), T("settings_backup_nodb"))
+            return
+        except Exception as ex:
+            messagebox.showerror(T("error"), str(ex))
+            return
+        messagebox.showinfo(T("backup"), T("settings_backup_ok", path=dst))
 
     def _bloque_idioma(self, parent):
         self._lbl(parent, T("settings_lang_label"))
@@ -227,7 +230,16 @@ class SettingsView(ctk.CTkFrame):
 
     def _resetear_tutorial(self):
         self.config_data["primera_ejecucion"] = True
-        guardar_config(self.config_data)
+        try:
+            guardar_config(self.config_data)
+        except OSError as ex:
+            messagebox.showerror(T("error"), str(ex))
+            return
+        # Sincronizar la copia en memoria de la app: si no, una escritura
+        # posterior desde main.py reescribía el fichero con el valor viejo y
+        # deshecía el reinicio del tutorial.
+        if hasattr(self.app, "config_data"):
+            self.app.config_data["primera_ejecucion"] = True
         messagebox.showinfo(T("tutorial"), T("settings_tutorial_ok"))
 
     def _cargar_valores(self):
@@ -243,10 +255,13 @@ class SettingsView(ctk.CTkFrame):
         self.ent_negocio_email.insert(0, neg.get("email", ""))
         self.ent_logo.insert(0, neg.get("logo", ""))
 
-        self.ent_tarifa.insert(0, str(self.config_data.get("tarifa_por_hora", 5.0)))
-        self.ent_margen.insert(0, str(self.config_data.get("margen_objetivo", 40.0)))
-        self.ent_dias.insert(0, str(self.config_data.get("dias_antelacion_alertas", 2)))
-        self.ent_autoguardado.insert(0, str(self.config_data.get("autoguardado_minutos", 10)))
+        # `or valor_por_defecto` en vez de `.get(clave, defecto)`: si el valor
+        # es None en el JSON, get() lo devolvía tal cual y el campo mostraba
+        # el literal "None", que luego no se podía parsear al guardar.
+        self.ent_tarifa.insert(0, str(self.config_data.get("tarifa_por_hora") or 5.0))
+        self.ent_margen.insert(0, str(self.config_data.get("margen_objetivo") or 40.0))
+        self.ent_dias.insert(0, str(self.config_data.get("dias_antelacion_alertas") or 2))
+        self.ent_autoguardado.insert(0, str(self.config_data.get("autoguardado_minutos") or 10))
 
         self.var_notif.set(self.config_data.get("notificaciones_activadas", True))
         self.ent_backup.insert(0, self.config_data.get("carpeta_backups", "data/backups"))
@@ -260,30 +275,58 @@ class SettingsView(ctk.CTkFrame):
             margen = float(self.ent_margen.get() or 0)
             dias = int(self.ent_dias.get() or 2)
             autog = int(self.ent_autoguardado.get() or 10)
-        except ValueError:
+        except (ValueError, TypeError):
             messagebox.showerror(T("error"), T("settings_invalid_nums"))
             return
 
-        idioma_sel = self.combo_idioma.get()
-        idioma = "es" if "Español" in idioma_sel else "en"
+        # Validación de rangos: un autoguardado de 0 minutos provocaba un
+        # bucle infinito de callbacks en main.py y dejaba la app colgada.
+        if tarifa < 0:
+            messagebox.showerror(T("error"), T("settings_invalid_nums"))
+            return
+        if margen < 0 or margen >= 100:
+            messagebox.showerror(T("error"), T("settings_invalid_nums"))
+            return
+        if dias < 0:
+            messagebox.showerror(T("error"), T("settings_invalid_nums"))
+            return
+        autog = max(1, autog)
 
-        self.config_data.update({
+        idioma_sel = self.combo_idioma.get()
+        idioma = "es" if idioma_sel.startswith("Español") else "en"
+
+        # Releer el fichero antes de fusionar: self.config_data es una copia
+        # antigua y una escritura intermedia se perdería al guardar.
+        cfg = cargar_config()
+        cfg.update({
             "idioma": idioma,
             "tarifa_por_hora": tarifa,
             "margen_objetivo": margen,
             "dias_antelacion_alertas": dias,
             "autoguardado_minutos": autog,
             "notificaciones_activadas": self.var_notif.get(),
-            "carpeta_backups": self.ent_backup.get(),
-            "negocio": {
-                "nombre": self.ent_negocio_nombre.get(),
-                "direccion": self.ent_negocio_dir.get(),
-                "telefono": self.ent_negocio_tel.get(),
-                "email": self.ent_negocio_email.get(),
-                "logo": self.ent_logo.get(),
-            }
+            "carpeta_backups": self.ent_backup.get() or "data/backups",
         })
-        guardar_config(self.config_data)
+        # Fusionar el bloque de negocio para no perder claves ajenas
+        negocio = dict(cfg.get("negocio", {}) or {})
+        negocio.update({
+            "nombre": self.ent_negocio_nombre.get(),
+            "direccion": self.ent_negocio_dir.get(),
+            "telefono": self.ent_negocio_tel.get(),
+            "email": self.ent_negocio_email.get(),
+            "logo": self.ent_logo.get(),
+        })
+        cfg["negocio"] = negocio
+
+        try:
+            guardar_config(cfg)
+        except OSError as ex:
+            # Instalación en una carpeta de solo lectura (Program Files):
+            # antes la excepción escapaba y los cambios se perdían en silencio.
+            messagebox.showerror(T("error"), str(ex), parent=self.winfo_toplevel())
+            return
+
+        self.config_data = cfg
         # Mostrar confirmación ANTES de recargar (recargar destruye esta vista)
         messagebox.showinfo(T("settings"), T("settings_saved"), parent=self.winfo_toplevel())
         self.app.recargar_config()

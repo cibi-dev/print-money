@@ -87,6 +87,27 @@ PrintMoney/
 4. Configure the **target margin** to get alerts when a sale falls below it.
 5. Upload your logo as a `.png` file so it appears on invoices.
 
+## Tests
+
+The project ships with a regression suite that runs without a display and
+without touching your real database (it uses a temporary copy):
+
+```bash
+python tests_regression.py   # 35 tests – data layer, PDF, notifications, pagination
+python tests_ui_smoke.py     # 14 tests – builds the real Tkinter views and exercises them
+```
+
+## Repairing the filament inventory
+
+Older versions did not return filament stock when an order was edited or
+deleted, which left the inventory short and orphan rows in
+`historial_filamento`. Run this once to fix it:
+
+```bash
+python reparar_inventario.py --dry-run   # show what would change
+python reparar_inventario.py             # apply (asks for confirmation)
+```
+
 ---
 
 ## Technical Notes

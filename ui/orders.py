@@ -3,12 +3,12 @@
 
 import customtkinter as ctk
 from tkinter import messagebox, filedialog
-import tkinter as tk
+from datetime import date, datetime
 import db_manager
 from utils.pdf_invoice import generar_factura_pdf
 from utils.i18n import T
+from utils.labels import mapa_por_etiqueta
 import json, os
-from datetime import date
 
 import sys
 if getattr(sys, 'frozen', False):
@@ -26,10 +26,19 @@ COLOR_BORDER = "#2D2D2D"
 COLOR_HOVER  = "#2A2A2A"
 ESTADOS = ["pendiente", "en proceso", "completado", "cancelado"]
 
+# Pedidos por página. Antes se renderizaban TODOS los pedidos de golpe: con
+# 1000 pedidos eran 8000 widgets de Tkinter y la vista se quedaba congelada
+# más de 13 segundos. Ahora solo se crea la página visible.
+TAMANO_PAGINA = 50
+
 
 def cargar_config():
-    with open(os.path.join(BASE_DIR, "config.json"), "r", encoding="utf-8") as f:
-        return json.load(f)
+    """Lee config.json tolerando un fichero ausente o corrupto."""
+    try:
+        with open(os.path.join(BASE_DIR, "config.json"), "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
 
 
 class OrdersView(ctk.CTkFrame):
@@ -39,26 +48,36 @@ class OrdersView(ctk.CTkFrame):
         super().__init__(master, fg_color=COLOR_BG, corner_radius=0, **kwargs)
         self.app = app
         self._pedido_editando = None   # ID del pedido en edición
+        self._pagina = 0               # página visible (base 0)
+        self._total_filtrados = 0      # pedidos que cumplen el filtro
+        self._total_paginas = 1
+        self._todos_pedidos = []       # pedidos de la página actual
         self._construir_ui()
 
     def on_show(self):
         """Refresca los datos al volver a esta vista."""
-        self._cargar_pedidos()
-        
-        # Refrescar dropdown de clientes
+        self._cargar_dropdowns()
+        self._pagina = 0
+        self._aplicar_filtros()
+
+    # ──────────────── CARGA DE LISTADOS ────────────────
+
+    def _cargar_dropdowns(self):
+        """Rellena los desplegables de clientes y filamentos."""
         try:
-            self._clientes_data = {f"{c['nombre']}": c for c in db_manager.obtener_clientes()}
+            self._clientes_data = mapa_por_etiqueta(
+                db_manager.obtener_clientes(), lambda c: c["nombre"])
             valores_clientes = [T("orders_no_client")] + list(self._clientes_data.keys())
             self.combo_cliente.configure(values=valores_clientes)
             if self.combo_cliente.get() not in valores_clientes:
                 self.combo_cliente.set(T("orders_no_client"))
         except Exception:
             pass
-            
-        # Refrescar dropdown de filamentos
+
         try:
-            self._filamentos_data = {f"{f['nombre']} ({f['material']})": f
-                                      for f in db_manager.obtener_filamentos()}
+            self._filamentos_data = mapa_por_etiqueta(
+                db_manager.obtener_filamentos(),
+                lambda f: f"{f['nombre']} ({f['material']})")
             valores_filamentos = [T("orders_no_filament")] + list(self._filamentos_data.keys())
             self.combo_filamento_form.configure(values=valores_filamentos)
             if self.combo_filamento_form.get() not in valores_filamentos:
@@ -130,6 +149,30 @@ class OrdersView(ctk.CTkFrame):
                          font=ctk.CTkFont(size=11, weight="bold"),
                          anchor="w").pack(side="left", padx=8, pady=6, expand=True, fill="x")
 
+        # ── Paginación (se empaqueta antes del scroll para quedar abajo) ──
+        frame_pag = ctk.CTkFrame(frame_tabla, fg_color="transparent")
+        frame_pag.pack(side="bottom", fill="x", padx=10, pady=(4, 8))
+
+        self.btn_anterior = ctk.CTkButton(
+            frame_pag, text=T("orders_prev"), width=100, height=30,
+            fg_color=COLOR_CARD, hover_color=COLOR_HOVER,
+            text_color=COLOR_TEXT, corner_radius=8,
+            font=ctk.CTkFont(size=11),
+            command=lambda: self._cambiar_pagina(-1))
+        self.btn_anterior.pack(side="left")
+
+        self.lbl_pagina = ctk.CTkLabel(frame_pag, text="", text_color=COLOR_SUB,
+                                       font=ctk.CTkFont(size=11))
+        self.lbl_pagina.pack(side="left", expand=True)
+
+        self.btn_siguiente = ctk.CTkButton(
+            frame_pag, text=T("orders_next"), width=100, height=30,
+            fg_color=COLOR_CARD, hover_color=COLOR_HOVER,
+            text_color=COLOR_TEXT, corner_radius=8,
+            font=ctk.CTkFont(size=11),
+            command=lambda: self._cambiar_pagina(1))
+        self.btn_siguiente.pack(side="right")
+
         self.frame_tabla_scroll = ctk.CTkScrollableFrame(frame_tabla, fg_color="transparent")
         self.frame_tabla_scroll.pack(fill="both", expand=True)
 
@@ -146,11 +189,11 @@ class OrdersView(ctk.CTkFrame):
         # Encabezado del formulario
         frame_form_head = ctk.CTkFrame(parent, fg_color="transparent")
         frame_form_head.pack(fill="x", padx=14, pady=(13, 1))
-        
+
         ctk.CTkLabel(frame_form_head, text=T("orders_form_title"),
                      font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"),
                      text_color=COLOR_TEXT).pack(side="left")
-                     
+
         ctk.CTkButton(frame_form_head, text=T("orders_load_catalog"),
                       fg_color=COLOR_CARD, hover_color=COLOR_HOVER,
                       text_color=COLOR_ACCENT, border_width=1, border_color=COLOR_BORDER,
@@ -167,7 +210,7 @@ class OrdersView(ctk.CTkFrame):
             e.pack(fill="x", padx=14)
             return e
 
-        lbl(T("orders_date")); self.ent_fecha = ent(str(date.today()))
+        lbl(T("orders_date")); self.ent_fecha = ent("YYYY-MM-DD")
         lbl(T("orders_client")); self._cargar_combo_clientes(parent)
         lbl(T("orders_desc")); self.ent_desc = ent(T("orders_desc_ph"))
         lbl(T("orders_filament")); self._cargar_combo_filamentos(parent)
@@ -220,7 +263,8 @@ class OrdersView(ctk.CTkFrame):
 
     def _cargar_combo_clientes(self, parent):
         """Carga el dropdown de clientes."""
-        self._clientes_data = {f"{c['nombre']}": c for c in db_manager.obtener_clientes()}
+        self._clientes_data = mapa_por_etiqueta(
+            db_manager.obtener_clientes(), lambda c: c["nombre"])
         valores = [T("orders_no_client")] + list(self._clientes_data.keys())
         self.combo_cliente = ctk.CTkOptionMenu(
             parent, values=valores,
@@ -232,8 +276,9 @@ class OrdersView(ctk.CTkFrame):
 
     def _cargar_combo_filamentos(self, parent):
         """Carga el dropdown de filamentos."""
-        self._filamentos_data = {f"{f['nombre']} ({f['material']})": f
-                                  for f in db_manager.obtener_filamentos()}
+        self._filamentos_data = mapa_por_etiqueta(
+            db_manager.obtener_filamentos(),
+            lambda f: f"{f['nombre']} ({f['material']})")
         valores = [T("orders_no_filament")] + list(self._filamentos_data.keys())
         self.combo_filamento_form = ctk.CTkOptionMenu(
             parent, values=valores,
@@ -244,12 +289,154 @@ class OrdersView(ctk.CTkFrame):
         )
         self.combo_filamento_form.pack(fill="x", padx=14)
 
+    # ──────────────── FILTRADO Y PAGINACIÓN ────────────────
+
+    def _filtros_actuales(self):
+        """Devuelve (texto, estado) con el filtro de estado normalizado."""
+        texto = self.entry_buscar.get().strip()
+        estado = self.combo_estado.get()
+        if estado == T("orders_all"):
+            estado = None
+        return texto, estado
+
+    def _aplicar_filtros(self):
+        """Consulta la página actual aplicando los filtros en SQL."""
+        texto, estado = self._filtros_actuales()
+        offset = self._pagina * TAMANO_PAGINA
+        self._todos_pedidos = db_manager.obtener_pedidos(
+            filtro_texto=texto, filtro_estado=estado,
+            limite=TAMANO_PAGINA, offset=offset)
+        self._total_filtrados = db_manager.contar_pedidos(
+            filtro_texto=texto, filtro_estado=estado)
+        self._total_paginas = max(1, (self._total_filtrados + TAMANO_PAGINA - 1) // TAMANO_PAGINA)
+        if self._pagina >= self._total_paginas:
+            self._pagina = max(0, self._total_paginas - 1)
+        self._renderizar_filas(self._todos_pedidos)
+        self._actualizar_paginacion()
+
+    def _filtrar(self):
+        """Aplica los filtros y vuelve a la primera página."""
+        self._pagina = 0
+        self._aplicar_filtros()
+
+    def _cambiar_pagina(self, delta: int):
+        nueva = self._pagina + delta
+        if 0 <= nueva < self._total_paginas:
+            self._pagina = nueva
+            self._aplicar_filtros()
+
+    def _actualizar_paginacion(self):
+        """Actualiza el texto de paginación y el estado de los botones."""
+        if self._total_paginas > 1:
+            self.lbl_pagina.configure(text=T(
+                "orders_page", page=self._pagina + 1, total=self._total_paginas))
+        else:
+            self.lbl_pagina.configure(text=T(
+                "orders_page", page=1, total=1))
+        self.btn_anterior.configure(state="normal" if self._pagina > 0 else "disabled")
+        self.btn_siguiente.configure(
+            state="normal" if self._pagina < self._total_paginas - 1 else "disabled")
+
+    def _cargar_pedidos(self):
+        """Recarga la tabla conservando los filtros y la página actual."""
+        self._aplicar_filtros()
+
+    def _renderizar_filas(self, pedidos):
+        """Renderiza las filas de la página actual en el scroll frame."""
+        for w in self.frame_tabla_scroll.winfo_children():
+            w.destroy()
+
+        if not pedidos:
+            ctk.CTkLabel(self.frame_tabla_scroll, text=T("orders_no_results"),
+                         text_color=COLOR_SUB, font=ctk.CTkFont(size=12),
+                         justify="center").pack(pady=40)
+            return
+
+        for i, p in enumerate(pedidos):
+            row = ctk.CTkFrame(self.frame_tabla_scroll,
+                               fg_color="#252525" if i % 2 == 0 else COLOR_CARD,
+                               corner_radius=0)
+            row.pack(fill="x")
+            row.bind("<Button-1>", lambda e, pid=p["id"]: self._seleccionar_pedido(pid))
+            datos = [
+                str(p["id"]),
+                p.get("fecha", ""),
+                (p.get("cliente_nombre") or "—")[:18],
+                (p.get("descripcion") or "—")[:22],
+                f"${p.get('precio_venta', 0):.2f}",
+                f"${p.get('ganancia', 0):.2f}",
+                p.get("estado", ""),
+            ]
+            for d in datos:
+                lbl = ctk.CTkLabel(row, text=d, text_color=COLOR_TEXT,
+                                   font=ctk.CTkFont(size=11), anchor="w")
+                lbl.pack(side="left", padx=8, pady=5, expand=True, fill="x")
+                lbl.bind("<Button-1>", lambda e, pid=p["id"]: self._seleccionar_pedido(pid))
+
+    # ──────────────── SELECCIÓN Y FORMULARIO ────────────────
+
+    def _seleccionar_pedido(self, pedido_id):
+        """Carga un pedido en el formulario para edición."""
+        p = db_manager.obtener_pedido_por_id(pedido_id)
+        if not p:
+            return
+        self._pedido_editando = pedido_id
+        self.lbl_margen_alerta.configure(text="")
+
+        def set_entry(e, val):
+            e.delete(0, "end")
+            e.insert(0, str(val or ""))
+
+        set_entry(self.ent_fecha, p.get("fecha", ""))
+        set_entry(self.ent_desc, p.get("descripcion", ""))
+        set_entry(self.ent_gramos, p.get("gramos_usados", 0))
+        set_entry(self.ent_horas, p.get("horas_impresion", 0))
+        set_entry(self.ent_costo_mat, p.get("costo_material", 0))
+        set_entry(self.ent_costo_tiempo, p.get("costo_tiempo", 0))
+        set_entry(self.ent_envio, p.get("costo_envio", 0))
+        set_entry(self.ent_venta, p.get("precio_venta", 0))
+        set_entry(self.ent_entrega, p.get("fecha_entrega", ""))
+        set_entry(self.ent_notas, p.get("notas", ""))
+        if p.get("estado"):
+            self.combo_estado_form.set(p["estado"])
+
+        cliente_id = p.get("cliente_id")
+        etiqueta_cliente = None
+        if cliente_id:
+            for etiqueta, datos in self._clientes_data.items():
+                if datos["id"] == cliente_id:
+                    etiqueta_cliente = etiqueta
+                    break
+        self.combo_cliente.set(etiqueta_cliente or T("orders_no_client"))
+
+        filamento_id = p.get("filamento_id")
+        etiqueta_filamento = None
+        if filamento_id:
+            for etiqueta, datos in self._filamentos_data.items():
+                if datos["id"] == filamento_id:
+                    etiqueta_filamento = etiqueta
+                    break
+        self.combo_filamento_form.set(etiqueta_filamento or T("orders_no_filament"))
+
+    def _nuevo_pedido(self):
+        """Limpia el formulario para ingresar un nuevo pedido."""
+        self._pedido_editando = None
+        for e in [self.ent_fecha, self.ent_desc, self.ent_gramos, self.ent_horas,
+                  self.ent_costo_mat, self.ent_costo_tiempo, self.ent_envio,
+                  self.ent_venta, self.ent_entrega, self.ent_notas]:
+            e.delete(0, "end")
+        self.ent_fecha.insert(0, str(date.today()))
+        self.combo_estado_form.set("pendiente")
+        self.combo_cliente.set(T("orders_no_client"))
+        self.combo_filamento_form.set(T("orders_no_filament"))
+        self.lbl_margen_alerta.configure(text="")
+
     def _calcular_costo(self, *_):
         """Calcula el costo del material automáticamente."""
         try:
             nombre_fil = self.combo_filamento_form.get()
             fil = self._filamentos_data.get(nombre_fil, {})
-            precio_kg = fil.get("precio_por_kg", 0)
+            precio_kg = fil.get("precio_por_kg", 0) or 0
             gramos = float(self.ent_gramos.get() or 0)
             costo = gramos * precio_kg / 1000
             self.ent_costo_mat.delete(0, "end")
@@ -258,11 +445,11 @@ class OrdersView(ctk.CTkFrame):
             # Costo tiempo
             horas = float(self.ent_horas.get() or 0)
             config = cargar_config()
-            tarifa = config.get("tarifa_por_hora", 5.0)
-            costo_t = horas * tarifa
+            tarifa = config.get("tarifa_por_hora", 5.0) or 5.0
+            costo_t = horas * float(tarifa)
             self.ent_costo_tiempo.delete(0, "end")
             self.ent_costo_tiempo.insert(0, f"{costo_t:.2f}")
-        except ValueError:
+        except (ValueError, TypeError):
             pass
 
     def _verificar_margen(self, *_):
@@ -283,113 +470,20 @@ class OrdersView(ctk.CTkFrame):
                 )
             else:
                 self.lbl_margen_alerta.configure(text="")
-        except ValueError:
+        except (ValueError, TypeError):
             pass
 
-    def _cargar_pedidos(self):
-        """Carga y muestra todos los pedidos en la tabla."""
-        for w in self.frame_tabla_scroll.winfo_children():
-            w.destroy()
-        pedidos = db_manager.obtener_pedidos()
-        self._todos_pedidos = pedidos
-        self._renderizar_filas(pedidos)
+    # ──────────────── PERSISTENCIA ────────────────
 
-    def _renderizar_filas(self, pedidos):
-        """Renderiza filas de pedidos en el scroll frame."""
-        for w in self.frame_tabla_scroll.winfo_children():
-            w.destroy()
-        for p in pedidos:
-            row = ctk.CTkFrame(self.frame_tabla_scroll, fg_color="#252525" if pedidos.index(p) % 2 == 0 else COLOR_CARD,
-                               corner_radius=0)
-            row.pack(fill="x")
-            row.bind("<Button-1>", lambda e, pid=p["id"]: self._seleccionar_pedido(pid))
-            datos = [
-                str(p["id"]),
-                p.get("fecha", ""),
-                (p.get("cliente_nombre") or "—")[:18],
-                (p.get("descripcion") or "—")[:22],
-                f"${p.get('precio_venta', 0):.2f}",
-                f"${p.get('ganancia', 0):.2f}",
-                p.get("estado", ""),
-            ]
-            for d in datos:
-                color = COLOR_ACCENT if "gang" in d.lower() and float(d.replace("$","") or 0) > 0 else COLOR_TEXT
-                lbl = ctk.CTkLabel(row, text=d, text_color=COLOR_TEXT,
-                                   font=ctk.CTkFont(size=11), anchor="w")
-                lbl.pack(side="left", padx=8, pady=5, expand=True, fill="x")
-                lbl.bind("<Button-1>", lambda e, pid=p["id"]: self._seleccionar_pedido(pid))
-
-    def _filtrar(self):
-        """Filtra los pedidos por texto y estado."""
-        texto = self.entry_buscar.get().lower()
-        estado = self.combo_estado.get()
-        filtrados = [
-            p for p in self._todos_pedidos
-            if (texto in (p.get("cliente_nombre") or "").lower() or
-                texto in (p.get("descripcion") or "").lower())
-            and (estado == T("orders_all") or p.get("estado") == estado)
-        ]
-        self._renderizar_filas(filtrados)
-
-    def _seleccionar_pedido(self, pedido_id):
-        """Carga un pedido en el formulario para edición."""
-        pedidos = [p for p in self._todos_pedidos if p["id"] == pedido_id]
-        if not pedidos:
-            return
-        p = pedidos[0]
-        self._pedido_editando = pedido_id
-
-        def set_entry(e, val):
-            e.delete(0, "end")
-            e.insert(0, str(val or ""))
-
-        set_entry(self.ent_fecha, p.get("fecha", ""))
-        set_entry(self.ent_desc, p.get("descripcion", ""))
-        set_entry(self.ent_gramos, p.get("gramos_usados", 0))
-        set_entry(self.ent_horas, p.get("horas_impresion", 0))
-        set_entry(self.ent_costo_mat, p.get("costo_material", 0))
-        set_entry(self.ent_costo_tiempo, p.get("costo_tiempo", 0))
-        set_entry(self.ent_envio, p.get("costo_envio", 0))
-        set_entry(self.ent_venta, p.get("precio_venta", 0))
-        set_entry(self.ent_entrega, p.get("fecha_entrega", ""))
-        set_entry(self.ent_notas, p.get("notas", ""))
-        if p.get("estado"):
-            self.combo_estado_form.set(p["estado"])
-            
-        cliente_id = p.get("cliente_id")
-        cliente_encontrado = False
-        if cliente_id:
-            for nombre, datos in self._clientes_data.items():
-                if datos["id"] == cliente_id:
-                    self.combo_cliente.set(nombre)
-                    cliente_encontrado = True
-                    break
-        if not cliente_encontrado:
-            self.combo_cliente.set(T("orders_no_client"))
-            
-        filamento_id = p.get("filamento_id")
-        fila_encontrado = False
-        if filamento_id:
-            for nombre, datos in self._filamentos_data.items():
-                if datos["id"] == filamento_id:
-                    self.combo_filamento_form.set(nombre)
-                    fila_encontrado = True
-                    break
-        if not fila_encontrado:
-            self.combo_filamento_form.set(T("orders_no_filament"))
-
-    def _nuevo_pedido(self):
-        """Limpia el formulario para ingresar un nuevo pedido."""
-        self._pedido_editando = None
-        for e in [self.ent_fecha, self.ent_desc, self.ent_gramos, self.ent_horas,
-                  self.ent_costo_mat, self.ent_costo_tiempo, self.ent_envio,
-                  self.ent_venta, self.ent_entrega, self.ent_notas]:
-            e.delete(0, "end")
-        self.ent_fecha.insert(0, str(date.today()))
-        self.combo_estado_form.set("pendiente")
-        self.combo_cliente.set(T("orders_no_client"))
-        self.combo_filamento_form.set(T("orders_no_filament"))
-        self.lbl_margen_alerta.configure(text="")
+    def _validar_fecha(self, valor: str) -> bool:
+        """Comprueba que la fecha tenga el formato YYYY-MM-DD."""
+        if not valor:
+            return True
+        try:
+            datetime.strptime(valor.strip(), "%Y-%m-%d")
+            return True
+        except ValueError:
+            return False
 
     def _guardar_pedido(self):
         """Guarda o actualiza el pedido en la base de datos."""
@@ -398,21 +492,36 @@ class OrdersView(ctk.CTkFrame):
         filamento_nombre = self.combo_filamento_form.get()
         filamento = self._filamentos_data.get(filamento_nombre)
 
-        datos = {
-            "fecha":          self.ent_fecha.get() or str(date.today()),
-            "cliente_id":     cliente["id"] if cliente else None,
-            "descripcion":    self.ent_desc.get(),
-            "filamento_id":   filamento["id"] if filamento else None,
-            "gramos_usados":  float(self.ent_gramos.get() or 0),
-            "horas_impresion": float(self.ent_horas.get() or 0),
-            "costo_material": float(self.ent_costo_mat.get() or 0),
-            "costo_tiempo":   float(self.ent_costo_tiempo.get() or 0),
-            "costo_envio":    float(self.ent_envio.get() or 0),
-            "precio_venta":   float(self.ent_venta.get() or 0),
-            "fecha_entrega":  self.ent_entrega.get(),
-            "estado":         self.combo_estado_form.get(),
-            "notas":          self.ent_notas.get(),
-        }
+        fecha = self.ent_fecha.get().strip() or str(date.today())
+        fecha_entrega = self.ent_entrega.get().strip()
+        if not self._validar_fecha(fecha) or not self._validar_fecha(fecha_entrega):
+            messagebox.showerror(T("error"), T("orders_invalid_date"),
+                                 parent=self.winfo_toplevel())
+            return
+
+        # Los campos numéricos se parsean DENTRO del try: antes la conversión
+        # estaba fuera y una letra en el precio abortaba el guardado sin
+        # mostrar ningún error.
+        try:
+            datos = {
+                "fecha":          fecha,
+                "cliente_id":     cliente["id"] if cliente else None,
+                "descripcion":    self.ent_desc.get(),
+                "filamento_id":   filamento["id"] if filamento else None,
+                "gramos_usados":  float(self.ent_gramos.get() or 0),
+                "horas_impresion": float(self.ent_horas.get() or 0),
+                "costo_material": float(self.ent_costo_mat.get() or 0),
+                "costo_tiempo":   float(self.ent_costo_tiempo.get() or 0),
+                "costo_envio":    float(self.ent_envio.get() or 0),
+                "precio_venta":   float(self.ent_venta.get() or 0),
+                "fecha_entrega":  fecha_entrega,
+                "estado":         self.combo_estado_form.get(),
+                "notas":          self.ent_notas.get(),
+            }
+        except (ValueError, TypeError):
+            messagebox.showerror(T("error"), T("orders_invalid_nums"),
+                                 parent=self.winfo_toplevel())
+            return
 
         try:
             if self._pedido_editando:
@@ -439,8 +548,9 @@ class OrdersView(ctk.CTkFrame):
         if not self._pedido_editando:
             messagebox.showwarning(T("warning"), T("orders_select_saved"), parent=self.winfo_toplevel())
             return
-        pedidos = [p for p in self._todos_pedidos if p["id"] == self._pedido_editando]
-        if not pedidos:
+        pedido = db_manager.obtener_pedido_por_id(self._pedido_editando)
+        if not pedido:
+            messagebox.showwarning(T("warning"), T("orders_select_saved"), parent=self.winfo_toplevel())
             return
         ruta = filedialog.asksaveasfilename(
             defaultextension=".pdf",
@@ -449,7 +559,11 @@ class OrdersView(ctk.CTkFrame):
         )
         if ruta:
             config = cargar_config()
-            generar_factura_pdf(pedidos[0], config, ruta)
+            try:
+                generar_factura_pdf(pedido, config, ruta)
+            except Exception as ex:
+                messagebox.showerror(T("error"), str(ex), parent=self.winfo_toplevel())
+                return
             db_manager.marcar_factura_generada(self._pedido_editando)
             messagebox.showinfo(T("success"), T("orders_invoice_ok", path=ruta), parent=self.winfo_toplevel())
 
@@ -467,13 +581,22 @@ class OrdersView(ctk.CTkFrame):
         if datos.get("precio_sugerido"):
             self.ent_venta.insert(0, f"{datos['precio_sugerido']:.2f}")
 
+        # La calculadora envía el filamento, pero antes se ignoraba: el pedido
+        # se guardaba sin filamento y el inventario NO se descontaba.
+        filamento_id = datos.get("filamento_id")
+        if filamento_id:
+            for etiqueta, info in self._filamentos_data.items():
+                if info["id"] == filamento_id:
+                    self.combo_filamento_form.set(etiqueta)
+                    break
+
     def _abrir_modal_catalogo(self):
         """Abre un modal para seleccionar un producto del catálogo y autocompletar el formulario."""
         productos = db_manager.obtener_catalogo()
         if not productos:
             messagebox.showinfo(T("sidebar_catalog"), T("orders_catalog_empty"), parent=self.winfo_toplevel())
             return
-            
+
         modal = ctk.CTkToplevel(self)
         modal.title(T("orders_catalog_select"))
         modal.geometry("400x450")
@@ -481,28 +604,32 @@ class OrdersView(ctk.CTkFrame):
         modal.grab_set()
         modal.focus_force()
         modal.configure(fg_color=COLOR_BG)
-        
+
         modal.update_idletasks()
         x = modal.winfo_screenwidth() // 2 - 200
         y = modal.winfo_screenheight() // 2 - 225
         modal.geometry(f"+{x}+{y}")
-        
-        ctk.CTkLabel(modal, text=T("orders_catalog_title"), 
+
+        ctk.CTkLabel(modal, text=T("orders_catalog_title"),
                      font=ctk.CTkFont(size=16, weight="bold"), text_color=COLOR_TEXT).pack(pady=16)
-                     
+
         scroll = ctk.CTkScrollableFrame(modal, fg_color="transparent")
         scroll.pack(fill="both", expand=True, padx=14, pady=(0, 14))
-        
+
         def seleccionar(p):
             self.ent_desc.delete(0, "end")
             self.ent_desc.insert(0, p["nombre"])
-            
+
             if p.get("filamento_nombre"):
                 f_key = f"{p['filamento_nombre']} ({p.get('filamento_material', 'PLA')})"
-                try:
+                if f_key in self._filamentos_data:
                     self.combo_filamento_form.set(f_key)
-                except Exception:
-                    pass
+                else:
+                    # Puede haber un homónimo con etiqueta "(2)"
+                    for etiqueta, info in self._filamentos_data.items():
+                        if info["nombre"] == p["filamento_nombre"]:
+                            self.combo_filamento_form.set(etiqueta)
+                            break
 
             self.ent_gramos.delete(0, "end")
             self.ent_gramos.insert(0, str(p["gramos_estimados"]))
@@ -510,25 +637,25 @@ class OrdersView(ctk.CTkFrame):
             self.ent_horas.insert(0, str(p["horas_estimadas"]))
             self.ent_venta.delete(0, "end")
             self.ent_venta.insert(0, f"{p['precio_sugerido']:.2f}")
-            
+
             self._calcular_costo()
             self._verificar_margen()
             modal.destroy()
-            
+
         for p in productos:
             card = ctk.CTkFrame(scroll, fg_color=COLOR_CARD, corner_radius=8, cursor="hand2")
             card.pack(fill="x", pady=3)
             card.bind("<Button-1>", lambda e, prod=p: seleccionar(prod))
-            
+
             f_top = ctk.CTkFrame(card, fg_color="transparent")
             f_top.pack(fill="x", padx=10, pady=(8, 2))
             f_top.bind("<Button-1>", lambda e, prod=p: seleccionar(prod))
-            
+
             ctk.CTkLabel(f_top, text=p["nombre"], font=ctk.CTkFont(size=12, weight="bold"), text_color=COLOR_TEXT).pack(side="left")
             ctk.CTkLabel(f_top, text=f"${p['precio_sugerido']:.2f}", font=ctk.CTkFont(size=12, weight="bold"), text_color=COLOR_ACCENT).pack(side="right")
-            
+
             ctk.CTkLabel(card, text=p.get("descripcion", ""), font=ctk.CTkFont(size=10), text_color=COLOR_SUB).pack(anchor="w", padx=10, pady=(0, 8))
-            
+
             # Asegurar que el click en los labels también dispare la selección
             for child in card.winfo_children():
                 child.bind("<Button-1>", lambda e, prod=p: seleccionar(prod))

@@ -5,6 +5,7 @@ import customtkinter as ctk
 from tkinter import messagebox
 import db_manager
 from utils.i18n import T
+from utils.labels import mapa_por_etiqueta
 
 COLOR_BG     = "#0F0F0F"
 COLOR_CARD   = "#1E1E1E"
@@ -87,10 +88,10 @@ class CatalogView(ctk.CTkFrame):
         lbl(T("catalog_desc")); self.ent_desc   = ent(T("catalog_desc_ph"))
 
         lbl(T("catalog_filament"))
-        self._filamentos_data = {
-            f"{f['nombre']} ({f.get('material', 'PLA')})": f
-            for f in db_manager.obtener_filamentos()
-        }
+        self._filamentos_data = mapa_por_etiqueta(
+            db_manager.obtener_filamentos(),
+            lambda f: f"{f['nombre']} ({f.get('material', 'PLA')})"
+        )
         valores = [T("catalog_no_filament")] + list(self._filamentos_data.keys())
         self.combo_filamento = ctk.CTkOptionMenu(
             parent, values=valores,
@@ -114,10 +115,10 @@ class CatalogView(ctk.CTkFrame):
 
     def _cargar_catalogo(self):
         try:
-            self._filamentos_data = {
-                f"{f['nombre']} ({f.get('material', 'PLA')})": f
-                for f in db_manager.obtener_filamentos()
-            }
+            self._filamentos_data = mapa_por_etiqueta(
+                db_manager.obtener_filamentos(),
+                lambda f: f"{f['nombre']} ({f.get('material', 'PLA')})"
+            )
             valores = [T("catalog_no_filament")] + list(self._filamentos_data.keys())
             try:
                 self.combo_filamento.configure(values=valores)
@@ -256,11 +257,14 @@ class CatalogView(ctk.CTkFrame):
         set_e(self.ent_horas,  p.get("horas_estimadas", 0))
         set_e(self.ent_precio, p.get("precio_sugerido", 0))
 
-        if p.get("filamento_nombre"):
-            f_key = f"{p['filamento_nombre']} ({p.get('filamento_material', 'PLA')})"
-            if f_key in self._filamentos_data:
-                self.combo_filamento.set(f_key)
-                return
+        # Buscar por ID: con homónimos la etiqueta puede llevar el sufijo "(2)"
+        # y la comparación por texto no encontraría el filamento correcto.
+        filamento_id = p.get("filamento_base_id")
+        if filamento_id:
+            for etiqueta, info in self._filamentos_data.items():
+                if info["id"] == filamento_id:
+                    self.combo_filamento.set(etiqueta)
+                    return
         self.combo_filamento.set(T("catalog_no_filament"))
 
     def _nuevo_producto(self):

@@ -105,6 +105,12 @@ STRINGS = {
     "orders_select_first":  {"es": "Selecciona un pedido primero.","en": "Select an order first."},
     "orders_select_saved":  {"es": "Selecciona un pedido guardado primero.","en": "Select a saved order first."},
     "orders_confirm_del":   {"es": "¿Eliminar pedido #{id}?","en": "Delete order #{id}?"},
+    "orders_prev":          {"es": "‹ Anterior",             "en": "‹ Previous"},
+    "orders_next":          {"es": "Siguiente ›",           "en": "Next ›"},
+    "orders_page":          {"es": "Página {page} de {total}","en": "Page {page} of {total}"},
+    "orders_invalid_nums":  {"es": "Los campos numéricos no son válidos.","en": "Numeric fields are not valid."},
+    "orders_invalid_date":  {"es": "La fecha debe tener el formato YYYY-MM-DD.","en": "Date must be in YYYY-MM-DD format."},
+    "orders_no_results":    {"es": "Ningún pedido coincide con el filtro.","en": "No orders match the filter."},
     "orders_invoice_ok":    {"es": "Factura guardada en:\n{path}","en": "Invoice saved to:\n{path}"},
     "orders_catalog_empty": {"es": "Tu catálogo está vacío. Agrega diseños desde la vista 'Catálogo'.",
                              "en": "Your catalog is empty. Add designs from the 'Catalog' view."},
@@ -290,6 +296,8 @@ STRINGS = {
     "calc_pdf_ok":          {"es": "Cotización PDF exportada en:\n{path}",
                              "en": "Quote PDF exported to:\n{path}"},
     "calc_not_specified":   {"es": "No especificado",       "en": "Not specified"},
+    "calc_invalid_values":  {"es": "Revisa los valores: hay un campo no numérico.",
+                             "en": "Check the values: a field is not a number."},
     "calc_product_3d":      {"es": "Impresión 3D",          "en": "3D Printing"},
 
     # ── SETTINGS ───────────────────────────────────────────────────
