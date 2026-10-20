@@ -621,9 +621,28 @@ class PrintMoneyApp(ctk.CTk):
             ).start()
 
     def _iniciar_autoguardado(self):
-        """Programa el autoguardado periódico cada 10 minutos."""
+        """Programa el autoguardado periódico.
+
+        El intervalo tiene un suelo de 1 minuto. Con 0 (o negativo) el
+        `after(0, ...)` se reprogramaba a sí mismo en bucle infinito: la app
+        consumía el 100% de la CPU y quedaba inservible desde el arranque.
+        """
         minutos = self.config_data.get("autoguardado_minutos", 10)
+        try:
+            minutos = int(minutos)
+        except (TypeError, ValueError):
+            minutos = 10
+        minutos = max(1, minutos)
         ms = minutos * 60 * 1000
+
+        # Cancelar el temporizador anterior: si no, cada recarga dejaba un
+        # autoguardado más corriendo en paralelo.
+        anterior = getattr(self, "_timer_autoguardado", None)
+        if anterior is not None:
+            try:
+                self.after_cancel(anterior)
+            except Exception:
+                pass
 
         def autoguardar():
             self.lbl_status.configure(text=T("auto_saved"), text_color=COLOR_ACCENT)
@@ -641,6 +660,10 @@ class PrintMoneyApp(ctk.CTk):
         cambio_idioma = (nuevo_idioma != self.idioma)
         self.idioma = nuevo_idioma
         set_idioma(self.idioma)
+
+        # Re-programar el autoguardado con el intervalo nuevo: antes el
+        # cambio solo surtaba efecto al reiniciar la app.
+        self._iniciar_autoguardado()
 
         if cambio_idioma:
             # ── Reconstruir sidebar con el nuevo idioma ──

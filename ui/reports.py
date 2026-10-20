@@ -62,10 +62,31 @@ class ReportsView(ctk.CTkFrame):
         self.frame_graficos.pack(fill="both", expand=True, padx=28, pady=14)
 
     def _actualizar_graficos(self):
+        año = int(self.combo_año.get())
+
+        # Recoger los datos primero para poder compararlos con lo que ya se
+        # está mostrando. Si no ha cambiado nada, no se rehacen los gráficos:
+        # crear las 3 figuras de matplotlib costaba ~250 ms y se repetía cada
+        # vez que el usuario volvía a la vista.
+        ingresos_mes = db_manager.obtener_ingresos_por_mes(año)
+        gastos_cat = db_manager.obtener_gastos_por_categoria()
+        ganancia_dias = db_manager.obtener_ganancia_ultimos_dias(30)
+        resumen = db_manager.obtener_resumen_anual(año)
+
+        firma = (
+            año,
+            tuple((d["mes"], d["total"]) for d in ingresos_mes),
+            tuple((d["nombre"], d["total"]) for d in gastos_cat),
+            tuple((d["fecha"], d["ganancia"]) for d in ganancia_dias),
+            tuple(sorted(resumen.items())),
+        )
+        if firma == getattr(self, "_firma_datos", None):
+            return
+        self._firma_datos = firma
+
         for w in self.frame_graficos.winfo_children():
             w.destroy()
 
-        año = int(self.combo_año.get())
         meses = T("months_short")
 
         frame_bar = ctk.CTkFrame(self.frame_graficos, fg_color=COLOR_CARD,
@@ -74,7 +95,7 @@ class ReportsView(ctk.CTkFrame):
         ctk.CTkLabel(frame_bar, text=f"{T('reports_income_chart')} – {año}",
                      font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
                      text_color=COLOR_TEXT).pack(anchor="w", padx=16, pady=(12, 4))
-        self._grafico_barras_ingresos(frame_bar, año, meses)
+        self._grafico_barras_ingresos(frame_bar, ingresos_mes, meses)
 
         frame_pie = ctk.CTkFrame(self.frame_graficos, fg_color=COLOR_CARD,
                                   corner_radius=14, border_width=1, border_color=COLOR_BORDER)
@@ -82,7 +103,7 @@ class ReportsView(ctk.CTkFrame):
         ctk.CTkLabel(frame_pie, text=T("reports_expenses_chart"),
                      font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
                      text_color=COLOR_TEXT).pack(anchor="w", padx=16, pady=(12, 4))
-        self._grafico_pastel_gastos(frame_pie)
+        self._grafico_pastel_gastos(frame_pie, gastos_cat)
 
         frame_line = ctk.CTkFrame(self.frame_graficos, fg_color=COLOR_CARD,
                                    corner_radius=14, border_width=1, border_color=COLOR_BORDER)
@@ -90,9 +111,9 @@ class ReportsView(ctk.CTkFrame):
         ctk.CTkLabel(frame_line, text=T("reports_profit_chart"),
                      font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
                      text_color=COLOR_TEXT).pack(anchor="w", padx=16, pady=(12, 4))
-        self._grafico_ganancia_linea(frame_line)
+        self._grafico_ganancia_linea(frame_line, ganancia_dias)
 
-        self._renderizar_resumen(año)
+        self._renderizar_resumen(año, resumen)
 
     def _estilo_ax(self, ax, fig):
         fig.patch.set_facecolor("#1E1E1E")
@@ -103,11 +124,10 @@ class ReportsView(ctk.CTkFrame):
         ax.spines['left'].set_color("#333333")
         ax.spines['bottom'].set_color("#333333")
 
-    def _grafico_barras_ingresos(self, parent, año, meses):
+    def _grafico_barras_ingresos(self, parent, datos, meses):
         import matplotlib.pyplot as plt
         from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
-        datos = db_manager.obtener_ingresos_por_mes(año)
         ingresos = [0] * 12
         for d in datos:
             mes_idx = int(d["mes"]) - 1
@@ -125,11 +145,10 @@ class ReportsView(ctk.CTkFrame):
         canvas.get_tk_widget().pack(fill="x", padx=10, pady=(0, 10))
         plt.close(fig)
 
-    def _grafico_pastel_gastos(self, parent):
+    def _grafico_pastel_gastos(self, parent, datos):
         import matplotlib.pyplot as plt
         from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
-        datos = db_manager.obtener_gastos_por_categoria()
         datos = [d for d in datos if d["total"] > 0]
 
         fig, ax = plt.subplots(figsize=(6, 3.5), facecolor="#1E1E1E")
@@ -159,11 +178,10 @@ class ReportsView(ctk.CTkFrame):
         canvas.get_tk_widget().pack(fill="x", padx=10, pady=(0, 10))
         plt.close(fig)
 
-    def _grafico_ganancia_linea(self, parent):
+    def _grafico_ganancia_linea(self, parent, datos):
         import matplotlib.pyplot as plt
         from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
-        datos = db_manager.obtener_ganancia_ultimos_dias(30)
         fechas = [d["fecha"] for d in datos]
         ganancias = [d["ganancia"] for d in datos]
 
@@ -185,7 +203,7 @@ class ReportsView(ctk.CTkFrame):
         canvas.get_tk_widget().pack(fill="x", padx=10, pady=(0, 10))
         plt.close(fig)
 
-    def _renderizar_resumen(self, año):
+    def _renderizar_resumen(self, año, resumen):
         frame_resumen = ctk.CTkFrame(self.frame_graficos, fg_color=COLOR_CARD,
                                      corner_radius=14, border_width=1, border_color=COLOR_BORDER)
         frame_resumen.pack(fill="x", pady=(0, 14))
@@ -196,14 +214,13 @@ class ReportsView(ctk.CTkFrame):
         frame_stats = ctk.CTkFrame(frame_resumen, fg_color="transparent")
         frame_stats.pack(fill="x", padx=16, pady=(0, 16))
 
-        total_ingresos = sum(
-            db_manager.obtener_estadisticas_mes(año, m)["ingresos"] for m in range(1, 13)
-        )
-        total_gastos = sum(
-            db_manager.obtener_estadisticas_mes(año, m)["gastos"] for m in range(1, 13)
-        )
-        ganancia = total_ingresos - total_gastos
-        margen = (ganancia / total_ingresos * 100) if total_ingresos > 0 else 0
+        # El resumen viene de una sola consulta agregada del año. Antes se
+        # llamaba a obtener_estadisticas_mes() 24 veces (12 meses x 2 métricas),
+        # es decir 24 conexiones y 120 consultas para pintar 4 números.
+        total_ingresos = resumen["ingresos"]
+        total_gastos = resumen["gastos"]
+        ganancia = resumen["ganancia_neta"]
+        margen = resumen["margen"]
 
         stats = [
             (T("reports_total_income"), f"${total_ingresos:,.2f}", COLOR_TEXT),

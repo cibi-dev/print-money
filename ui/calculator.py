@@ -4,6 +4,7 @@
 import customtkinter as ctk
 import db_manager
 from utils.i18n import T
+from utils.labels import mapa_por_etiqueta
 
 COLOR_BG     = "#0F0F0F"
 COLOR_CARD   = "#1E1E1E"
@@ -180,7 +181,10 @@ class CalculatorWindow(ctk.CTkToplevel):
 
     def _cargar_filamentos(self):
         filamentos = db_manager.obtener_filamentos()
-        self._filamentos_data = {f"{f['nombre']} ({f['material']})": f for f in filamentos}
+        # Etiquetas únicas: dos filamentos con el mismo nombre y material
+        # colapsaban en una sola entrada y uno quedaba inaccesible.
+        self._filamentos_data = mapa_por_etiqueta(
+            filamentos, lambda f: f"{f['nombre']} ({f['material']})")
         values = list(self._filamentos_data.keys()) or [T("calc_no_filaments")]
         self.combo_filamento.configure(values=values)
         if values:
@@ -192,19 +196,20 @@ class CalculatorWindow(ctk.CTkToplevel):
         try:
             gramos = float(self.entry_gramos.get() or 0)
             horas = float(self.entry_horas.get() or 0)
-            tarifa = float(self.entry_tarifa.get() or self.tarifa_default)
-            margen = float(self.entry_margen.get() or self.margen_default)
+            tarifa = float(self.entry_tarifa.get() or self.tarifa_default or 5.0)
+            margen = float(self.entry_margen.get() or self.margen_default or 0)
 
             nombre_fil = self.combo_filamento.get()
             fil = self._filamentos_data.get(nombre_fil, {})
-            precio_kg = fil.get("precio_por_kg", 0)
+            precio_kg = fil.get("precio_por_kg", 0) or 0
 
             costo_material = gramos * (precio_kg / 1000)
             costo_tiempo = horas * tarifa if self.var_incluir_tiempo.get() else 0
             costo_total = costo_material + costo_tiempo
 
-            if margen >= 100:
-                margen = 99
+            # Un margen >= 100 daría una división por cero; uno negativo
+            # generaría un precio por debajo del coste.
+            margen = max(0, min(99, margen))
             precio_sugerido = costo_total / (1 - margen / 100) if costo_total > 0 else 0
 
             self.lbl_costo_mat.configure(text=f"${costo_material:.2f}")
@@ -221,32 +226,44 @@ class CalculatorWindow(ctk.CTkToplevel):
                 "precio_sugerido": precio_sugerido,
             }
 
-        except ValueError:
-            pass
+        except (ValueError, TypeError):
+            # Antes el error se ignoraba en silencio: los labels seguían
+            # mostrando el cálculo ANTERIOR y "Copiar a nuevo pedido" copiaba
+            # cifras obsoletas a un pedido real.
+            self._ultimo_calculo = None
+            self.lbl_costo_mat.configure(text="—")
+            self.lbl_costo_tiempo.configure(text="—")
+            self.lbl_costo_total.configure(text="—")
+            self.lbl_precio_sug.configure(text="—")
 
     def _copiar_a_pedido(self):
-        datos = getattr(self, "_ultimo_calculo", {})
+        datos = getattr(self, "_ultimo_calculo", None)
+        if not datos:
+            import tkinter.messagebox as messagebox
+            messagebox.showwarning(T("warning"), T("calc_invalid_values"))
+            return
         self.app.navegar("pedidos")
         if hasattr(self.app, "_vista_actual") and hasattr(self.app._cache_vistas.get(self.app._vista_actual), "prellenar"):
             self.app._cache_vistas[self.app._vista_actual].prellenar(datos)
-        self.withdraw()
+        # destroy() y no withdraw(): withdraw() dejaba una ventana Toplevel
+        # invisible y siempre encima, y se acumulaba una por cada clic.
+        self.destroy()
 
     def _obtener_datos_cotizacion(self):
         try:
             gramos = float(self.entry_gramos.get() or 0)
             horas = float(self.entry_horas.get() or 0)
-        except ValueError:
+        except (ValueError, TypeError):
             gramos, horas = 0, 0
-            
+
         nombre_fil = self.combo_filamento.get()
         if nombre_fil == T("calc_select"):
             nombre_fil = T("calc_not_specified")
-            
-        precio_str = self.lbl_precio_sug.cget("text").replace("$", "")
-        try:
-            precio = float(precio_str)
-        except ValueError:
-            precio = 0.0
+
+        # Usar el valor calculado, no el texto del label: el label ya viene
+        # redondeado a 2 decimales y "nan" se convertía silenciosamente en 0.
+        calculo = getattr(self, "_ultimo_calculo", None) or {}
+        precio = calculo.get("precio_sugerido") or 0.0
 
         return {
             "producto": T("calc_product_3d"),

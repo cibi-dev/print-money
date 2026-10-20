@@ -16,6 +16,36 @@ COLOR_RED    = "#FF4C4C"
 COLOR_BORDER = "#2D2D2D"
 COLOR_HOVER  = "#2A2A2A"
 
+# La frecuencia se guarda SIEMPRE en un código canónico ('mensual',
+# 'semanal', 'anual') y se traduce solo al mostrarlo. Antes se guardaba el
+# texto ya traducido, así que cambiar de idioma reescribía el contenido de
+# la base de datos.
+_FRECUENCIA_CLAVES = {
+    "mensual": "freq_monthly",
+    "semanal": "freq_weekly",
+    "anual": "freq_yearly",
+}
+# Valores que могут quedar en bases de datos creadas con la versión anterior
+_FRECUENCIA_ANTIGUAS = {
+    "monthly": "freq_monthly",
+    "weekly": "freq_weekly",
+    "yearly": "freq_yearly",
+}
+
+
+def _frecuencia_a_visible(valor):
+    """Convierte el valor guardado en la BD al texto que se muestra."""
+    clave = _FRECUENCIA_CLAVES.get(valor) or _FRECUENCIA_ANTIGUAS.get(valor)
+    return T(clave or "freq_monthly")
+
+
+def _frecuencia_a_canonica(texto_visible):
+    """Convierte el texto visible del desplegable al valor que se guarda."""
+    for canonico, clave in _FRECUENCIA_CLAVES.items():
+        if texto_visible == T(clave):
+            return canonico
+    return "mensual"
+
 
 class ExpensesView(ctk.CTkFrame):
     """Vista de gestión de gastos con formulario y tabla."""
@@ -91,7 +121,7 @@ class ExpensesView(ctk.CTkFrame):
             e.pack(fill="x", padx=14)
             return e
 
-        lbl(T("expenses_date")); self.ent_fecha = ent(str(date.today()))
+        lbl(T("expenses_date")); self.ent_fecha = ent("YYYY-MM-DD")
         self.ent_fecha.insert(0, str(date.today()))
 
         lbl(T("expenses_category"))
@@ -171,7 +201,12 @@ class ExpensesView(ctk.CTkFrame):
 
     def _cargar_datos(self):
         self._categorias_data = {c["nombre"]: c for c in db_manager.obtener_categorias_gastos()}
-        self.combo_cat.configure(values=list(self._categorias_data.keys()))
+        # Conservar la categoría seleccionada si sigue existiendo
+        seleccion = self.combo_cat.get()
+        valores = list(self._categorias_data.keys())
+        self.combo_cat.configure(values=valores)
+        if seleccion in valores:
+            self.combo_cat.set(seleccion)
 
         for w in self.frame_scroll.winfo_children():
             w.destroy()
@@ -208,6 +243,7 @@ class ExpensesView(ctk.CTkFrame):
         self.ent_monto.delete(0, "end"); self.ent_monto.insert(0, str(g.get("monto",0)))
         self.ent_notas.delete(0, "end"); self.ent_notas.insert(0, g.get("notas",""))
         self.var_recurrente.set(bool(g.get("recurrente")))
+        self.combo_freq.set(_frecuencia_a_visible(g.get("frecuencia")))
         self._toggle_recurrente()
 
     def _nuevo_gasto(self):
@@ -215,6 +251,7 @@ class ExpensesView(ctk.CTkFrame):
         for e in [self.ent_fecha, self.ent_desc, self.ent_monto, self.ent_notas]:
             e.delete(0, "end")
         self.ent_fecha.insert(0, str(date.today()))
+        self.combo_freq.set(T("freq_monthly"))
         self.var_recurrente.set(False)
         self._toggle_recurrente()
 
@@ -227,15 +264,23 @@ class ExpensesView(ctk.CTkFrame):
             messagebox.showerror(T("error"), T("expenses_invalid_amt"))
             return
 
-        db_manager.agregar_gasto(
+        args = dict(
             fecha=self.ent_fecha.get() or str(date.today()),
             categoria_id=cat["id"] if cat else None,
             descripcion=self.ent_desc.get(),
             monto=monto,
             recurrente=1 if self.var_recurrente.get() else 0,
-            frecuencia=self.combo_freq.get(),
-            notas=self.ent_notas.get()
+            frecuencia=_frecuencia_a_canonica(self.combo_freq.get()),
+            notas=self.ent_notas.get(),
         )
+
+        # Antes de arreglar esto, guardar SIEMPRE insertaba una fila nueva y
+        # duplicaba el gasto sin avisar, dejando el original intacto.
+        if self._gasto_editando:
+            db_manager.actualizar_gasto(self._gasto_editando, **args)
+        else:
+            db_manager.agregar_gasto(**args)
+
         self._nuevo_gasto()
         self._cargar_datos()
 

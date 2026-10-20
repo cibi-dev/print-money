@@ -10,15 +10,14 @@ def mostrar_notificacion(titulo: str, mensaje: str, duracion: int = 5):
     try:
         from win10toast import ToastNotifier
         notifier = ToastNotifier()
-        notifier.show_toast(
-            titulo,
-            mensaje,
-            duration=duracion,
-            threaded=True
-        )
+        # threaded=False: el toast se dibuja en el hilo del llamante (que es
+        # daemon), así que no retrasa el cierre de la app. Además show_toast
+        # devuelve False si ya había un toast activo: en ese caso hay que caer
+        # a plyer en vez de descartar el aviso, porque la app dispara dos
+        # notificaciones casi seguidas (backup al arrancar y pedidos próximos).
+        if not notifier.show_toast(titulo, mensaje, duration=duracion, threaded=False):
+            raise RuntimeError("ya hay una notificacion activa")
         return
-    except ImportError:
-        pass
     except Exception:
         pass
 
@@ -31,7 +30,5 @@ def mostrar_notificacion(titulo: str, mensaje: str, duracion: int = 5):
             app_name="PrintMoney",
             timeout=duracion
         )
-    except ImportError:
-        pass
     except Exception:
         pass

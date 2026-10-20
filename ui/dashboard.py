@@ -236,8 +236,10 @@ class DashboardView(ctk.CTkFrame):
         """Muestra los últimos 8 pedidos en el panel lateral."""
         for widget in self.frame_pedidos_scroll.winfo_children():
             widget.destroy()
-            
-        pedidos = db_manager.obtener_pedidos()[:8]
+
+        # LIMIT 8 en SQL en vez de traer todos los pedidos y quedarse con los
+        # 8 primeros en Python.
+        pedidos = db_manager.obtener_pedidos(limite=8)
         for p in pedidos:
             frame_p = ctk.CTkFrame(self.frame_pedidos_scroll, fg_color="#252525", corner_radius=8)
             frame_p.pack(fill="x", pady=3, padx=2)

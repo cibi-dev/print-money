@@ -1,0 +1,283 @@
+"""
+Smoke test de integración de la UI: construye las vistas reales de Tkinter y
+ejercita los flujos que se arreglaron (paginación, edición de gastos,
+validación de pedidos).
+
+Ejecutar con:
+    python tests_ui_smoke.py
+"""
+import os
+import sys
+import shutil
+import tempfile
+import unittest
+from unittest.mock import MagicMock, patch
+
+SRC = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, SRC)
+
+import db_manager
+import customtkinter as ctk
+
+ctk.set_appearance_mode("dark")
+
+
+def _preparar_db():
+    tmp = tempfile.mkdtemp(prefix="pm_ui_")
+    db_manager.DB_PATH = os.path.join(tmp, "ui.db")
+    db_manager.BACKUP_DIR = os.path.join(tmp, "backups")
+    db_manager.inicializar_db()
+    return tmp
+
+
+class BaseUI(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.root = ctk.CTk()
+        cls.root.withdraw()
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.root.destroy()
+        except Exception:
+            pass
+
+    def setUp(self):
+        self.tmp = _preparar_db()
+        self.errores = []
+
+        def _showerror(titulo, mensaje=None, **kw):
+            self.errores.append(mensaje)
+
+        def _showwarning(titulo, mensaje=None, **kw):
+            pass
+
+        def _showinfo(titulo, mensaje=None, **kw):
+            pass
+
+        self._patchers = [
+            patch("tkinter.messagebox.showerror", side_effect=_showerror),
+            patch("tkinter.messagebox.showwarning", side_effect=_showwarning),
+            patch("tkinter.messagebox.showinfo", side_effect=_showinfo),
+            patch("tkinter.messagebox.askyesno", return_value=False),
+        ]
+        for p in self._patchers:
+            p.start()
+
+    def tearDown(self):
+        for p in self._patchers:
+            p.stop()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+
+class TestOrdersUI(BaseUI):
+
+    def _vista(self):
+        from ui.orders import OrdersView
+        v = OrdersView(self.root, MagicMock())
+        v.pack()
+        return v
+
+    def _sembrar(self, n):
+        for i in range(n):
+            db_manager.agregar_pedido({
+                "fecha": "2026-10-15", "descripcion": f"pedido {i}",
+                "precio_venta": float(i), "estado": "pendiente"})
+
+    def test_paginacion_no_renderiza_todo(self):
+        self._sembrar(120)
+        v = self._vista()
+        v.on_show()
+        filas = v.frame_tabla_scroll.winfo_children()
+        self.assertEqual(len(filas), 50, "Solo se deben renderizar 50 filas por página")
+        self.assertEqual(v._total_paginas, 3)
+        self.assertEqual(v._total_filtrados, 120)
+
+    def test_navegar_entre_paginas(self):
+        self._sembrar(120)
+        v = self._vista()
+        v.on_show()
+        ids_p1 = {v._todos_pedidos[i]["id"] for i in range(len(v._todos_pedidos))}
+        v._cambiar_pagina(1)
+        self.assertEqual(v._pagina, 1)
+        ids_p2 = {v._todos_pedidos[i]["id"] for i in range(len(v._todos_pedidos))}
+        self.assertFalse(ids_p1 & ids_p2, "Las páginas no deben solaparse")
+        v._cambiar_pagina(-1)
+        self.assertEqual(v._pagina, 0)
+
+    def test_boton_anterior_deshabilitado_en_primera_pagina(self):
+        self._sembrar(120)
+        v = self._vista()
+        v.on_show()
+        self.assertEqual(v.btn_anterior.cget("state"), "disabled")
+        self.assertEqual(v.btn_siguiente.cget("state"), "normal")
+
+    def test_filtro_por_texto_en_sql(self):
+        self._sembrar(120)
+        v = self._vista()
+        v.on_show()
+        v.entry_buscar.insert(0, "pedido 1")
+        v._filtrar()
+        self.assertLess(v._total_filtrados, 120)
+        self.assertGreater(v._total_filtrados, 0)
+        for p in v._todos_pedidos:
+            self.assertIn("pedido 1", p["descripcion"])
+
+    def test_guardar_con_precio_no_numerico_muestra_error(self):
+        v = self._vista()
+        v.on_show()
+        v.ent_venta.insert(0, "abc")
+        v._guardar_pedido()
+        self.assertTrue(self.errores, "Debe mostrarse un error, no fallar en silencio")
+        self.assertEqual(db_manager.contar_pedidos(), 0, "No debe guardarse nada")
+
+    def test_guardar_con_fecha_invalida_muestra_error(self):
+        v = self._vista()
+        v.on_show()
+        v.ent_fecha.delete(0, "end")
+        v.ent_fecha.insert(0, "32/12/2026")
+        v._guardar_pedido()
+        self.assertTrue(self.errores)
+        self.assertEqual(db_manager.contar_pedidos(), 0)
+
+    def test_guardar_pedido_valido(self):
+        v = self._vista()
+        v.on_show()
+        v.ent_desc.insert(0, "prueba")
+        v.ent_venta.insert(0, "50")
+        v._guardar_pedido()
+        self.assertEqual(self.errores, [])
+        self.assertEqual(db_manager.contar_pedidos(), 1)
+
+    def test_clientes_homonomos_aparecen_ambos(self):
+        db_manager.agregar_cliente("Gemelo")
+        db_manager.agregar_cliente("Gemelo")
+        v = self._vista()
+        v.on_show()
+        etiquetas = [e for e in v._clientes_data if e.startswith("Gemelo")]
+        self.assertEqual(len(etiquetas), 2, "Los dos homónimos deben ser seleccionables")
+        self.assertEqual(len({v._clientes_data[e]["id"] for e in etiquetas}), 2)
+
+
+class TestExpensesUI(BaseUI):
+
+    def test_editar_gasto_actualiza_en_vez_de_duplicar(self):
+        db_manager.agregar_gasto("2026-10-01", 1, "Compra", 50.0)
+        from ui.expenses import ExpensesView
+        v = ExpensesView(self.root, MagicMock())
+        v.pack()
+        v.on_show()
+
+        gastos = db_manager.obtener_gastos()
+        self.assertEqual(len(gastos), 1)
+        v._seleccionar_gasto(gastos[0]["id"])
+        v.ent_monto.delete(0, "end")
+        v.ent_monto.insert(0, "125")
+        v._guardar_gasto()
+
+        gastos = db_manager.obtener_gastos()
+        self.assertEqual(len(gastos), 1, "Guardar no debe duplicar el gasto")
+        self.assertEqual(gastos[0]["monto"], 125.0)
+
+    def test_frecuencia_se_guarda_en_canonico(self):
+        from ui.expenses import ExpensesView
+        v = ExpensesView(self.root, MagicMock())
+        v.pack()
+        v.on_show()
+        v.ent_monto.insert(0, "10")
+        v.var_recurrente.set(True)
+        v.combo_freq.set(v.combo_freq.cget("values")[1])  # semanal
+        v._guardar_gasto()
+        gastos = db_manager.obtener_gastos()
+        self.assertEqual(len(gastos), 1)
+        self.assertEqual(gastos[0]["frecuencia"], "semanal",
+                         "La frecuencia debe guardarse como código, no como texto traducido")
+
+
+class TestRestoVistas(BaseUI):
+    """Todas las vistas deben seguir construyéndose sin errores."""
+
+    def test_todas_las_vistas_se_construyen(self):
+        from ui.dashboard import DashboardView
+        from ui.orders import OrdersView
+        from ui.expenses import ExpensesView
+        from ui.inventory import InventoryView
+        from ui.catalog import CatalogView
+        from ui.clients import ClientsView
+        from ui.reports import ReportsView
+        from ui.calendar import CalendarView
+        from ui.settings import SettingsView
+        from ui.calculator import CalculatorWindow
+
+        for cls in (DashboardView, OrdersView, ExpensesView, InventoryView,
+                    CatalogView, ClientsView, ReportsView, CalendarView, SettingsView):
+            v = cls(self.root, MagicMock())
+            self.assertIsNotNone(v)
+            v.destroy()
+
+        win = CalculatorWindow(self.root)
+        self.assertIsNotNone(win)
+        win.destroy()
+
+    def test_dashboard_carga_datos(self):
+        from ui.dashboard import DashboardView
+        db_manager.agregar_pedido({"fecha": "2026-10-05", "precio_venta": 100.0,
+                                   "costo_material": 10, "costo_tiempo": 5,
+                                   "costo_envio": 0, "estado": "completado"})
+        v = DashboardView(self.root, MagicMock())
+        v.pack()
+        v.on_show()
+        self.assertIn("100", v.card_ingresos.lbl_valor.cget("text"))
+        v.destroy()
+
+    def test_settings_guarda_sin_perder_negocio(self):
+        import ui.settings as settings
+        # Apuntar el BASE_DIR de settings a un temporal con config.json
+        import json
+        cfg_path = os.path.join(self.tmp, "config.json")
+        with open(cfg_path, "w", encoding="utf-8") as f:
+            json.dump({"idioma": "es", "tarifa_por_hora": 5.0,
+                       "negocio": {"nombre": "X", "clave_extra": "debe-sobrevivir"}}, f)
+        original = settings.BASE_DIR
+        settings.BASE_DIR = self.tmp
+        try:
+            v = settings.SettingsView(self.root, MagicMock())
+            v.pack()
+            v.on_show()
+            v._guardar()
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+            self.assertEqual(cfg["negocio"]["clave_extra"], "debe-sobrevivir",
+                             "Las claves ajenas del bloque negocio no deben perderse")
+            self.assertEqual(cfg["autoguardado_minutos"], 10)
+            v.destroy()
+        finally:
+            settings.BASE_DIR = original
+
+    def test_autoguardado_cero_se_eleva_a_uno(self):
+        import ui.settings as settings
+        import json
+        cfg_path = os.path.join(self.tmp, "config.json")
+        with open(cfg_path, "w", encoding="utf-8") as f:
+            json.dump({"idioma": "es", "autoguardado_minutos": 0}, f)
+        original = settings.BASE_DIR
+        settings.BASE_DIR = self.tmp
+        try:
+            v = settings.SettingsView(self.root, MagicMock())
+            v.pack()
+            v.on_show()
+            v.ent_autoguardado.delete(0, "end")
+            v.ent_autoguardado.insert(0, "0")
+            v._guardar()
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+            self.assertEqual(cfg["autoguardado_minutos"], 1,
+                             "0 minutos provocaba un bucle infinito en main.py")
+            v.destroy()
+        finally:
+            settings.BASE_DIR = original
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)
