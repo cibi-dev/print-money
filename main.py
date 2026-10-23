@@ -309,7 +309,7 @@ class PrintMoneyApp(ctk.CTk):
         self.geometry("1280x780")
         self.minsize(900, 600)
         self.configure(fg_color=COLOR_BG)
-        self.after(200, lambda: self.state("zoomed")) # Iniciar maximizada con retraso para asegurar efecto
+        self.after(200, lambda: (self.state("zoomed"), self.lift(), self.focus_force()))
 
         # Icono de la app (Nuclear Fix: Usar el ICO multi-tamaño)
         ico_path = os.path.join(ASSETS_DIR, "app_icon.ico")
@@ -325,10 +325,8 @@ class PrintMoneyApp(ctk.CTk):
             self._ico_path = ico_path
             self._png_path = png_path if os.path.exists(png_path) else None
             
-            # Aplicar icono (Síncrono + Refresco Forzado)
+            # Aplicar icono
             self._aplicar_icono()
-            # Un pequeño parpadeo ocultando y mostrando la ventana ayuda a la taskbar a refrescar el icono
-            self.after(500, self._forzar_refresco_taskbar)
 
         # ── Inicializar base de datos ──
         db_manager.inicializar_db()
@@ -526,17 +524,6 @@ class PrintMoneyApp(ctk.CTk):
             except Exception:
                 pass
 
-        except Exception:
-            pass
-
-    def _forzar_refresco_taskbar(self):
-        """Oculta y muestra la ventana brevemente para forzar a la barra de tareas a refrescar el icono."""
-        try:
-            self.withdraw()
-            self._aplicar_icono()
-            self.deiconify()
-            # Si estaba maximizada, volver a maximizar
-            self.after(100, lambda: self.state("zoomed"))
         except Exception:
             pass
 
