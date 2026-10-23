@@ -203,26 +203,34 @@ class InventoryView(ctk.CTkFrame):
                 notas=self.ent_notas.get()
             )
         except ValueError:
-            messagebox.showerror(T("error"), T("inv_invalid_nums"))
+            messagebox.showerror(T("error"), T("inv_invalid_nums"), parent=self.winfo_toplevel())
             return
 
         if not args["nombre"]:
-            messagebox.showwarning(T("warning"), T("inv_name_required"))
+            messagebox.showwarning(T("warning"), T("inv_name_required"), parent=self.winfo_toplevel())
             return
 
-        if self._filamento_editando:
-            db_manager.actualizar_filamento(self._filamento_editando, **args)
-        else:
-            db_manager.agregar_filamento(**args)
+        try:
+            if self._filamento_editando:
+                db_manager.actualizar_filamento(self._filamento_editando, **args)
+            else:
+                db_manager.agregar_filamento(**args)
+        except Exception as e:
+            messagebox.showerror(T("error"), str(e), parent=self.winfo_toplevel())
+            return
 
         self._nuevo_filamento()
         self._cargar_filamentos()
 
     def _eliminar_filamento(self):
         if not self._filamento_editando:
-            messagebox.showwarning(T("warning"), T("inv_select"))
+            messagebox.showwarning(T("warning"), T("inv_select"), parent=self.winfo_toplevel())
             return
-        if messagebox.askyesno(T("confirm"), T("inv_confirm_del", id=self._filamento_editando)):
-            db_manager.eliminar_filamento(self._filamento_editando)
+        if messagebox.askyesno(T("confirm"), T("inv_confirm_del", id=self._filamento_editando), parent=self.winfo_toplevel()):
+            try:
+                db_manager.eliminar_filamento(self._filamento_editando)
+            except Exception as e:
+                messagebox.showerror(T("error"), str(e), parent=self.winfo_toplevel())
+                return
             self._nuevo_filamento()
             self._cargar_filamentos()

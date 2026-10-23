@@ -225,28 +225,36 @@ class ClientsView(ctk.CTkFrame):
     def _guardar_cliente(self):
         nombre = self.ent_nombre.get().strip()
         if not nombre:
-            messagebox.showwarning(T("warning"), T("clients_name_req"))
+            messagebox.showwarning(T("warning"), T("clients_name_req"), parent=self.winfo_toplevel())
             return
-        if self._cliente_seleccionado:
-            db_manager.actualizar_cliente(
-                self._cliente_seleccionado, nombre,
-                self.ent_email.get(), self.ent_telefono.get(),
-                self.ent_direccion.get(), self.ent_notas.get()
-            )
-        else:
-            db_manager.agregar_cliente(
-                nombre, self.ent_email.get(), self.ent_telefono.get(),
-                self.ent_direccion.get(), self.ent_notas.get()
-            )
+        try:
+            if self._cliente_seleccionado:
+                db_manager.actualizar_cliente(
+                    self._cliente_seleccionado, nombre,
+                    self.ent_email.get(), self.ent_telefono.get(),
+                    self.ent_direccion.get(), self.ent_notas.get()
+                )
+            else:
+                db_manager.agregar_cliente(
+                    nombre, self.ent_email.get(), self.ent_telefono.get(),
+                    self.ent_direccion.get(), self.ent_notas.get()
+                )
+        except Exception as e:
+            messagebox.showerror(T("error"), str(e), parent=self.winfo_toplevel())
+            return
         self._nuevo_cliente()
         self._cargar_clientes()
 
     def _eliminar_cliente(self):
         if not self._cliente_seleccionado:
-            messagebox.showwarning(T("warning"), T("clients_select"))
+            messagebox.showwarning(T("warning"), T("clients_select"), parent=self.winfo_toplevel())
             return
-        if messagebox.askyesno(T("confirm"), T("clients_confirm_del")):
-            db_manager.eliminar_cliente(self._cliente_seleccionado)
+        if messagebox.askyesno(T("confirm"), T("clients_confirm_del"), parent=self.winfo_toplevel()):
+            try:
+                db_manager.eliminar_cliente(self._cliente_seleccionado)
+            except Exception as e:
+                messagebox.showerror(T("error"), str(e), parent=self.winfo_toplevel())
+                return
             self._nuevo_cliente()
             self._cargar_clientes()
 
@@ -257,4 +265,4 @@ class ClientsView(ctk.CTkFrame):
         self.clipboard_clear()
         self.clipboard_append(texto)
         self.update()
-        messagebox.showinfo(T("copied_msg"), T("clients_crm_copied"))
+        messagebox.showinfo(T("copied_msg"), T("clients_crm_copied"), parent=self.winfo_toplevel())

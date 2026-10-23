@@ -195,9 +195,12 @@ class ExpensesView(ctk.CTkFrame):
     def _agregar_categoria(self):
         nombre = self.ent_nueva_cat.get().strip()
         if nombre:
-            db_manager.agregar_categoria_gasto(nombre)
-            self._cargar_datos()
-            self.ent_nueva_cat.delete(0, "end")
+            try:
+                db_manager.agregar_categoria_gasto(nombre)
+                self._cargar_datos()
+                self.ent_nueva_cat.delete(0, "end")
+            except Exception as e:
+                messagebox.showerror(T("error"), str(e), parent=self.winfo_toplevel())
 
     def _cargar_datos(self):
         self._categorias_data = {c["nombre"]: c for c in db_manager.obtener_categorias_gastos()}
@@ -261,7 +264,7 @@ class ExpensesView(ctk.CTkFrame):
         try:
             monto = float(self.ent_monto.get() or 0)
         except ValueError:
-            messagebox.showerror(T("error"), T("expenses_invalid_amt"))
+            messagebox.showerror(T("error"), T("expenses_invalid_amt"), parent=self.winfo_toplevel())
             return
 
         args = dict(
@@ -276,19 +279,27 @@ class ExpensesView(ctk.CTkFrame):
 
         # Antes de arreglar esto, guardar SIEMPRE insertaba una fila nueva y
         # duplicaba el gasto sin avisar, dejando el original intacto.
-        if self._gasto_editando:
-            db_manager.actualizar_gasto(self._gasto_editando, **args)
-        else:
-            db_manager.agregar_gasto(**args)
+        try:
+            if self._gasto_editando:
+                db_manager.actualizar_gasto(self._gasto_editando, **args)
+            else:
+                db_manager.agregar_gasto(**args)
+        except Exception as e:
+            messagebox.showerror(T("error"), str(e), parent=self.winfo_toplevel())
+            return
 
         self._nuevo_gasto()
         self._cargar_datos()
 
     def _eliminar_gasto(self):
         if not self._gasto_editando:
-            messagebox.showwarning(T("warning"), T("expenses_select"))
+            messagebox.showwarning(T("warning"), T("expenses_select"), parent=self.winfo_toplevel())
             return
-        if messagebox.askyesno(T("confirm"), T("expenses_confirm_del", id=self._gasto_editando)):
-            db_manager.eliminar_gasto(self._gasto_editando)
+        if messagebox.askyesno(T("confirm"), T("expenses_confirm_del", id=self._gasto_editando), parent=self.winfo_toplevel()):
+            try:
+                db_manager.eliminar_gasto(self._gasto_editando)
+            except Exception as e:
+                messagebox.showerror(T("error"), str(e), parent=self.winfo_toplevel())
+                return
             self._nuevo_gasto()
             self._cargar_datos()
