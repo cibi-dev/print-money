@@ -309,7 +309,11 @@ class PrintMoneyApp(ctk.CTk):
         self.geometry("1280x780")
         self.minsize(900, 600)
         self.configure(fg_color=COLOR_BG)
-        self.after(200, lambda: (self.state("zoomed"), self.lift(), self.focus_force()))
+        try:
+            self.state("zoomed")
+        except Exception:
+            pass
+        self.after(50, lambda: (self.lift(), self.focus_force()))
 
         # Icono de la app (Nuclear Fix: Usar el ICO multi-tamaño)
         ico_path = os.path.join(ASSETS_DIR, "app_icon.ico")
