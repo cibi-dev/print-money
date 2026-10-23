@@ -250,30 +250,6 @@ class TestRestoVistas(BaseUI):
                 cfg = json.load(f)
             self.assertEqual(cfg["negocio"]["clave_extra"], "debe-sobrevivir",
                              "Las claves ajenas del bloque negocio no deben perderse")
-            self.assertEqual(cfg["autoguardado_minutos"], 10)
-            v.destroy()
-        finally:
-            settings.BASE_DIR = original
-
-    def test_autoguardado_cero_se_eleva_a_uno(self):
-        import ui.settings as settings
-        import json
-        cfg_path = os.path.join(self.tmp, "config.json")
-        with open(cfg_path, "w", encoding="utf-8") as f:
-            json.dump({"idioma": "es", "autoguardado_minutos": 0}, f)
-        original = settings.BASE_DIR
-        settings.BASE_DIR = self.tmp
-        try:
-            v = settings.SettingsView(self.root, MagicMock())
-            v.pack()
-            v.on_show()
-            v.ent_autoguardado.delete(0, "end")
-            v.ent_autoguardado.insert(0, "0")
-            v._guardar()
-            with open(cfg_path, "r", encoding="utf-8") as f:
-                cfg = json.load(f)
-            self.assertEqual(cfg["autoguardado_minutos"], 1,
-                             "0 minutos provocaba un bucle infinito en main.py")
             v.destroy()
         finally:
             settings.BASE_DIR = original

@@ -153,9 +153,6 @@ class SettingsView(ctk.CTkFrame):
         self._lbl(parent, T("settings_alert_days"))
         self.ent_dias = self._ent(parent, "2")
 
-        self._lbl(parent, T("settings_autosave"))
-        self.ent_autoguardado = self._ent(parent, "10")
-
         ctk.CTkFrame(parent, height=10, fg_color="transparent").pack()
 
     def _bloque_notif(self, parent):
@@ -237,7 +234,7 @@ class SettingsView(ctk.CTkFrame):
             return
         # Sincronizar la copia en memoria de la app: si no, una escritura
         # posterior desde main.py reescribía el fichero con el valor viejo y
-        # deshecía el reinicio del tutorial.
+        # deshacía el reinicio del tutorial.
         if hasattr(self.app, "config_data"):
             self.app.config_data["primera_ejecucion"] = True
         messagebox.showinfo(T("tutorial"), T("settings_tutorial_ok"))
@@ -245,7 +242,7 @@ class SettingsView(ctk.CTkFrame):
     def _cargar_valores(self):
         for e in [self.ent_negocio_nombre, self.ent_negocio_dir, self.ent_negocio_tel, 
                   self.ent_negocio_email, self.ent_logo, self.ent_tarifa, self.ent_margen, 
-                  self.ent_dias, self.ent_autoguardado, self.ent_backup]:
+                  self.ent_dias, self.ent_backup]:
             e.delete(0, "end")
 
         neg = self.config_data.get("negocio", {})
@@ -261,7 +258,6 @@ class SettingsView(ctk.CTkFrame):
         self.ent_tarifa.insert(0, str(self.config_data.get("tarifa_por_hora") or 5.0))
         self.ent_margen.insert(0, str(self.config_data.get("margen_objetivo") or 40.0))
         self.ent_dias.insert(0, str(self.config_data.get("dias_antelacion_alertas") or 2))
-        self.ent_autoguardado.insert(0, str(self.config_data.get("autoguardado_minutos") or 10))
 
         self.var_notif.set(self.config_data.get("notificaciones_activadas", True))
         self.ent_backup.insert(0, self.config_data.get("carpeta_backups", "data/backups"))
@@ -274,13 +270,11 @@ class SettingsView(ctk.CTkFrame):
             tarifa = float(self.ent_tarifa.get() or 5.0)
             margen = float(self.ent_margen.get() or 0)
             dias = int(self.ent_dias.get() or 2)
-            autog = int(self.ent_autoguardado.get() or 10)
         except (ValueError, TypeError):
             messagebox.showerror(T("error"), T("settings_invalid_nums"))
             return
 
-        # Validación de rangos: un autoguardado de 0 minutos provocaba un
-        # bucle infinito de callbacks en main.py y dejaba la app colgada.
+        # Validación de rangos
         if tarifa < 0:
             messagebox.showerror(T("error"), T("settings_invalid_nums"))
             return
@@ -290,7 +284,6 @@ class SettingsView(ctk.CTkFrame):
         if dias < 0:
             messagebox.showerror(T("error"), T("settings_invalid_nums"))
             return
-        autog = max(1, autog)
 
         idioma_sel = self.combo_idioma.get()
         idioma = "es" if idioma_sel.startswith("Español") else "en"
@@ -303,7 +296,6 @@ class SettingsView(ctk.CTkFrame):
             "tarifa_por_hora": tarifa,
             "margen_objetivo": margen,
             "dias_antelacion_alertas": dias,
-            "autoguardado_minutos": autog,
             "notificaciones_activadas": self.var_notif.get(),
             "carpeta_backups": self.ent_backup.get() or "data/backups",
         })

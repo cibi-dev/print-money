@@ -174,18 +174,6 @@ class TestCancelados(BaseDB):
 
 
 # ===========================================================================
-# CRÍTICO 3 — El autoguardado nunca puede ser 0 (bucle infinito)
-# ===========================================================================
-class TestAutoguardado(unittest.TestCase):
-    def test_suelo_de_un_minuto(self):
-        # El floor vive en main.py y settings.py; aquí se comprueba la
-        # intención: 0 minutos es inválido y debe elevarse a 1.
-        for valor in (0, -5):
-            self.assertEqual(max(1, valor), 1,
-                             "0 o negativo deben elevarse a 1 minuto")
-
-
-# ===========================================================================
 # CRÍTICO 5 — La factura PDF no debe romperse con markup ni con NULL
 # ===========================================================================
 class TestFacturaPDF(unittest.TestCase):
