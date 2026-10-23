@@ -393,6 +393,17 @@ class TestResumenAnual(BaseDB):
         self.assertEqual(resumen["ganancia_neta"], 40.0)
         self.assertAlmostEqual(resumen["margen"], 40.0, places=1)
 
+    def test_resumen_mensual_anual_coincide(self):
+        self._pedido(precio_venta=150.0, costo_material=50.0, fecha="2026-03-10", estado="entregado")
+        db_manager.agregar_gasto(monto=30.0, categoria_id=None, descripcion="Herramienta", fecha="2026-03-12")
+        resumen = db_manager.obtener_resumen_mensual_anual(2026)
+        marzo = resumen[3]
+        self.assertEqual(marzo["ingresos"], 150.0)
+        self.assertEqual(marzo["gastos"], 30.0)
+        self.assertEqual(marzo["ganancia_neta"], 70.0)  # (150 - 50) - 30
+        self.assertEqual(marzo["num_pedidos"], 1)
+        self.assertEqual(resumen[1]["ingresos"], 0.0)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

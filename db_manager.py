@@ -760,6 +760,59 @@ def obtener_resumen_anual(year):
     }
 
 
+def obtener_resumen_mensual_anual(year: int):
+    """Retorna ingresos, gastos, ganancia y pedidos para los 12 meses del año en 2 consultas (en lugar de 36)."""
+    year = int(year)
+    fecha_inicio = f"{year}-01-01"
+    fecha_fin = f"{year + 1}-01-01"
+
+    meses = {
+        m: {"ingresos": 0.0, "gastos": 0.0, "ganancia_pedidos": 0.0, "ganancia_neta": 0.0, "margen": 0.0, "num_pedidos": 0}
+        for m in range(1, 13)
+    }
+
+    with obtener_conexion() as conn:
+        # 1. Pedidos agrupados por mes
+        rows_ped = conn.execute(f"""
+            SELECT CAST(strftime('%m', fecha) AS INTEGER) as mes,
+                   COALESCE(SUM(precio_venta), 0) as ingresos,
+                   COALESCE(SUM(ganancia), 0) as ganancia_pedidos,
+                   COUNT(*) as num_pedidos
+            FROM pedidos
+            WHERE fecha >= ? AND fecha < ? AND {_COND_ACTIVO}
+            GROUP BY strftime('%m', fecha)
+        """, (fecha_inicio, fecha_fin)).fetchall()
+
+        for r in rows_ped:
+            m = r["mes"]
+            if m in meses:
+                meses[m]["ingresos"] = float(r["ingresos"])
+                meses[m]["ganancia_pedidos"] = float(r["ganancia_pedidos"])
+                meses[m]["num_pedidos"] = int(r["num_pedidos"])
+
+        # 2. Gastos agrupados por mes
+        rows_gas = conn.execute("""
+            SELECT CAST(strftime('%m', fecha) AS INTEGER) as mes,
+                   COALESCE(SUM(monto), 0) as gastos
+            FROM gastos
+            WHERE fecha >= ? AND fecha < ?
+            GROUP BY strftime('%m', fecha)
+        """, (fecha_inicio, fecha_fin)).fetchall()
+
+        for r in rows_gas:
+            m = r["mes"]
+            if m in meses:
+                meses[m]["gastos"] = float(r["gastos"])
+
+    # Calcular ganancias netas y márgenes consolidados
+    for m, d in meses.items():
+        ganancia_neta = d["ganancia_pedidos"] - d["gastos"]
+        d["ganancia_neta"] = ganancia_neta
+        d["margen"] = (ganancia_neta / d["ingresos"] * 100) if d["ingresos"] > 0 else 0.0
+
+    return meses
+
+
 def obtener_ganancia_ultimos_dias(dias=30):
     """Retorna ganancia por día de los últimos N días para el gráfico."""
     with obtener_conexion() as conn:

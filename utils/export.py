@@ -31,9 +31,10 @@ def exportar_excel(ruta_salida: str, año: int):
     gastos  = db_manager.obtener_gastos(fecha_desde=fecha_inicio, fecha_hasta=fecha_fin)
 
     # Resumen mensual
+    resumen_meses = db_manager.obtener_resumen_mensual_anual(año)
     resumen = []
     for mes in range(1, 13):
-        stats = db_manager.obtener_estadisticas_mes(año, mes)
+        stats = resumen_meses[mes]
         resumen.append({
             "Mes": datetime(año, mes, 1).strftime("%B"),
             "Ingresos ($)": stats["ingresos"],
@@ -120,11 +121,12 @@ def exportar_pdf_reporte(ruta_salida: str, año: int):
     story.append(Spacer(1, 0.5*cm))
 
     # Tabla mensual
+    resumen_meses = db_manager.obtener_resumen_mensual_anual(año)
     headers = ["Mes", "Ingresos", "Gastos", "Ganancia Neta", "Margen %", "Pedidos"]
     rows = [headers]
     total_ingresos = total_gastos = total_ganancia = 0
     for mes in range(1, 13):
-        stats = db_manager.obtener_estadisticas_mes(año, mes)
+        stats = resumen_meses[mes]
         total_ingresos += stats["ingresos"]
         total_gastos   += stats["gastos"]
         total_ganancia += stats["ganancia_neta"]
