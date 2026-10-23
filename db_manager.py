@@ -195,6 +195,7 @@ def inicializar_db():
             "CREATE INDEX IF NOT EXISTS idx_pedidos_cliente ON pedidos(cliente_id)",
             "CREATE INDEX IF NOT EXISTS idx_pedidos_estado ON pedidos(estado)",
             "CREATE INDEX IF NOT EXISTS idx_pedidos_filamento ON pedidos(filamento_id)",
+            "CREATE INDEX IF NOT EXISTS idx_pedidos_entrega ON pedidos(fecha_entrega)",
             "CREATE INDEX IF NOT EXISTS idx_gastos_fecha ON gastos(fecha)",
             "CREATE INDEX IF NOT EXISTS idx_gastos_categoria ON gastos(categoria_id)",
             "CREATE INDEX IF NOT EXISTS idx_clientes_nombre ON clientes(nombre)",

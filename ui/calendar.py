@@ -113,6 +113,11 @@ class CalendarView(ctk.CTkFrame):
             self._marcar_fechas_calendario()
 
     def _marcar_fechas_calendario(self):
+        if hasattr(self.cal, "calevent_remove"):
+            try:
+                self.cal.calevent_remove("all")
+            except Exception:
+                pass
         for p in self._todos_pedidos:
             if p.get("fecha_entrega") and p.get("estado") == "pendiente":
                 try:
