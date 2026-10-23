@@ -408,6 +408,8 @@ class PrintMoneyApp(ctk.CTk):
             self, corner_radius=0, fg_color=COLOR_BG
         )
         self.frame_contenido.pack(side="right", fill="both", expand=True)
+        self.frame_contenido.grid_rowconfigure(0, weight=1)
+        self.frame_contenido.grid_columnconfigure(0, weight=1)
 
     def _construir_sidebar_contenido(self):
         """Construye el contenido interno de la sidebar (se puede reconstruir al cambiar idioma)."""
@@ -583,24 +585,25 @@ class PrintMoneyApp(ctk.CTk):
         if not cls:
             return
 
-        # Ocultar vista actual
-        if self._vista_actual and self._vista_actual in self._cache_vistas:
-            self._cache_vistas[self._vista_actual].pack_forget()
-
-        # Obtener o crear vista del caché
+        # Obtener o crear vista del caché (Stacked Grid: evita parpadeo y ventanas vacías)
         if destino not in self._cache_vistas:
             vista = cls(master=self.frame_contenido, app=self)
+            vista.grid(row=0, column=0, sticky="nsew")
             self._cache_vistas[destino] = vista
         else:
             vista = self._cache_vistas[destino]
 
-        # Mostrar vista instantáneamente
-        vista.pack(fill="both", expand=True)
-        self._vista_actual = destino
-
-        # Refrescar datos EN SEGUNDO PLANO (ya es visible, sin delay percibido)
+        # Refrescar datos de la vista antes de elevarla
         if hasattr(vista, "on_show"):
-            self.after(1, vista.on_show)
+            try:
+                vista.on_show()
+            except Exception as e:
+                import logging
+                logging.error(f"Error en on_show de {destino}: {e}")
+
+        # Elevar la vista al frente suavemente
+        vista.tkraise()
+        self._vista_actual = destino
 
 
     def _abrir_calculadora(self):

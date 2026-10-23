@@ -353,6 +353,11 @@ class OrdersView(ctk.CTkFrame):
 
     def _renderizar_filas(self, pedidos):
         """Renderiza las filas de la página actual en el scroll frame."""
+        firma = tuple((p["id"], p.get("fecha"), p.get("precio_venta"), p.get("ganancia"), p.get("estado")) for p in pedidos)
+        if firma == getattr(self, "_firma_tabla_pedidos", None):
+            return
+        self._firma_tabla_pedidos = firma
+
         for w in self.frame_tabla_scroll.winfo_children():
             w.destroy()
 

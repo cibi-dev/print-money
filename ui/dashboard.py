@@ -194,11 +194,15 @@ class DashboardView(ctk.CTkFrame):
         import matplotlib.pyplot as plt
         from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
+        datos = db_manager.obtener_ganancia_ultimos_dias(30)
+        firma = tuple((d["fecha"], d["ganancia"]) for d in datos)
+        if firma == getattr(self, "_firma_grafico", None):
+            return
+        self._firma_grafico = firma
+
         # Limpiar canvas actual para evitar duplicados en re-entradas
         for w in self.frame_canvas.winfo_children():
             w.destroy()
-
-        datos = db_manager.obtener_ganancia_ultimos_dias(30)
 
         fechas = [d["fecha"] for d in datos]
         ganancias = [d["ganancia"] for d in datos]
@@ -234,12 +238,16 @@ class DashboardView(ctk.CTkFrame):
 
     def _cargar_pedidos_recientes(self):
         """Muestra los últimos 8 pedidos en el panel lateral."""
-        for widget in self.frame_pedidos_scroll.winfo_children():
-            widget.destroy()
-
         # LIMIT 8 en SQL en vez de traer todos los pedidos y quedarse con los
         # 8 primeros en Python.
         pedidos = db_manager.obtener_pedidos(limite=8)
+        firma = tuple((p["id"], p.get("fecha"), p.get("precio_venta"), p.get("estado")) for p in pedidos)
+        if firma == getattr(self, "_firma_pedidos", None):
+            return
+        self._firma_pedidos = firma
+
+        for widget in self.frame_pedidos_scroll.winfo_children():
+            widget.destroy()
         for p in pedidos:
             frame_p = ctk.CTkFrame(self.frame_pedidos_scroll, fg_color="#252525", corner_radius=8)
             frame_p.pack(fill="x", pady=3, padx=2)
