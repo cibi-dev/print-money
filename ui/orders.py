@@ -454,7 +454,7 @@ class OrdersView(ctk.CTkFrame):
 
             # Costo tiempo
             horas = float(self.ent_horas.get() or 0)
-            config = cargar_config()
+            config = getattr(self.app, "config_data", None) or cargar_config()
             tarifa = config.get("tarifa_por_hora", 5.0) or 5.0
             costo_t = horas * float(tarifa)
             self.ent_costo_tiempo.delete(0, "end")
@@ -465,7 +465,7 @@ class OrdersView(ctk.CTkFrame):
     def _verificar_margen(self, *_):
         """Alerta si el margen de venta está por debajo del objetivo."""
         try:
-            config = cargar_config()
+            config = getattr(self.app, "config_data", None) or cargar_config()
             margen_obj = config.get("margen_objetivo", 0)
             if not margen_obj:
                 return
