@@ -231,6 +231,26 @@ class TestRestoVistas(BaseUI):
         self.assertIn("100", v.card_ingresos.lbl_valor.cget("text"))
         v.destroy()
 
+    def test_navegar_desmapea_vista_anterior(self):
+        from main import PrintMoneyApp
+        app = PrintMoneyApp()
+        app.withdraw()
+        try:
+            app.navegar("dashboard")
+            dash = app._cache_vistas["dashboard"]
+            self.assertNotEqual(dash.grid_info(), {})
+
+            app.navegar("pedidos")
+            pedidos = app._cache_vistas["pedidos"]
+            self.assertNotEqual(pedidos.grid_info(), {})
+            # La vista previa fue retirada con grid_remove() y no tiene info de grid activa
+            self.assertEqual(dash.grid_info(), {}, "La vista anterior debe desmapearse para evitar widget bleed")
+        finally:
+            try:
+                app.destroy()
+            except Exception:
+                pass
+
     def test_settings_guarda_sin_perder_negocio(self):
         import ui.settings as settings
         # Apuntar el BASE_DIR de settings a un temporal con config.json

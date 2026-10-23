@@ -572,25 +572,32 @@ class PrintMoneyApp(ctk.CTk):
         if not cls:
             return
 
-        # Obtener o crear vista del caché (Stacked Grid: evita parpadeo y ventanas vacías)
+        # Ocultar la vista previa para evitar sangrado y colisión de widgets
+        if self._vista_actual and self._vista_actual in self._cache_vistas:
+            try:
+                self._cache_vistas[self._vista_actual].grid_remove()
+            except Exception:
+                pass
+
+        # Obtener o crear vista del caché
         if destino not in self._cache_vistas:
             vista = cls(master=self.frame_contenido, app=self)
-            vista.grid(row=0, column=0, sticky="nsew")
             self._cache_vistas[destino] = vista
         else:
             vista = self._cache_vistas[destino]
 
-        # Refrescar datos de la vista antes de elevarla
+        # Mapear y elevar al frente
+        vista.grid(row=0, column=0, sticky="nsew")
+        vista.tkraise()
+        self._vista_actual = destino
+
+        # Refrescar datos de la vista
         if hasattr(vista, "on_show"):
             try:
                 vista.on_show()
             except Exception as e:
                 import logging
                 logging.error(f"Error en on_show de {destino}: {e}")
-
-        # Elevar la vista al frente suavemente
-        vista.tkraise()
-        self._vista_actual = destino
 
 
     def _abrir_calculadora(self):
@@ -639,7 +646,10 @@ class PrintMoneyApp(ctk.CTk):
 
             # ── Limpiar caché de vistas para que se reconstruyan con el nuevo idioma ──
             if self._vista_actual and self._vista_actual in self._cache_vistas:
-                self._cache_vistas[self._vista_actual].pack_forget()
+                try:
+                    self._cache_vistas[self._vista_actual].grid_remove()
+                except Exception:
+                    pass
             for key, vista in self._cache_vistas.items():
                 try:
                     vista.destroy()
