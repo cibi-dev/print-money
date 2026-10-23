@@ -52,6 +52,7 @@ class OrdersView(ctk.CTkFrame):
         self._total_filtrados = 0      # pedidos que cumplen el filtro
         self._total_paginas = 1
         self._todos_pedidos = []       # pedidos de la página actual
+        self._debounce_buscar = None
         self._construir_ui()
 
     def on_show(self):
@@ -112,7 +113,7 @@ class OrdersView(ctk.CTkFrame):
                                          width=200, fg_color="#252525", border_color=COLOR_BORDER,
                                          text_color=COLOR_TEXT, corner_radius=8)
         self.entry_buscar.pack(side="left", pady=8)
-        self.entry_buscar.bind("<KeyRelease>", lambda e: self._filtrar())
+        self.entry_buscar.bind("<KeyRelease>", self._on_buscar_tecla)
 
         ctk.CTkLabel(frame_filtros, text=T("orders_status"), text_color=COLOR_SUB,
                      font=ctk.CTkFont(size=12)).pack(side="left", padx=(12, 4))
@@ -313,6 +314,14 @@ class OrdersView(ctk.CTkFrame):
             self._pagina = max(0, self._total_paginas - 1)
         self._renderizar_filas(self._todos_pedidos)
         self._actualizar_paginacion()
+
+    def _on_buscar_tecla(self, event=None):
+        if getattr(self, "_debounce_buscar", None) is not None:
+            try:
+                self.after_cancel(self._debounce_buscar)
+            except Exception:
+                pass
+        self._debounce_buscar = self.after(250, self._filtrar)
 
     def _filtrar(self):
         """Aplica los filtros y vuelve a la primera página."""

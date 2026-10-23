@@ -24,6 +24,7 @@ class ClientsView(ctk.CTkFrame):
         super().__init__(master, fg_color=COLOR_BG, corner_radius=0, **kwargs)
         self.app = app
         self._cliente_seleccionado = None
+        self._debounce_buscar = None
         self._construir_ui()
 
     def on_show(self):
@@ -60,7 +61,7 @@ class ClientsView(ctk.CTkFrame):
                                           fg_color="#252525", border_color=COLOR_BORDER,
                                           text_color=COLOR_TEXT, corner_radius=8, height=32)
         self.entry_buscar.pack(fill="x", padx=10, pady=(0, 6))
-        self.entry_buscar.bind("<KeyRelease>", lambda e: self._filtrar_clientes())
+        self.entry_buscar.bind("<KeyRelease>", self._on_buscar_tecla)
 
         self.frame_lista_scroll = ctk.CTkScrollableFrame(frame_lista, fg_color="transparent")
         self.frame_lista_scroll.pack(fill="both", expand=True, padx=4, pady=(0, 6))
@@ -151,6 +152,14 @@ class ClientsView(ctk.CTkFrame):
                 command=lambda cid=c["id"]: self._seleccionar_cliente(cid)
             )
             btn.pack(fill="x", pady=1)
+
+    def _on_buscar_tecla(self, event=None):
+        if getattr(self, "_debounce_buscar", None) is not None:
+            try:
+                self.after_cancel(self._debounce_buscar)
+            except Exception:
+                pass
+        self._debounce_buscar = self.after(250, self._filtrar_clientes)
 
     def _filtrar_clientes(self):
         texto = self.entry_buscar.get().lower()
