@@ -16,6 +16,10 @@ from unittest.mock import MagicMock, patch
 SRC = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SRC)
 
+os.environ.setdefault("PRINTMONEY_DATA_DIR",
+                      tempfile.mkdtemp(prefix="pm_appdata_ui_"))
+os.environ.setdefault("PRINTMONEY_DISABLE_MIGRATION", "1")
+
 import db_manager
 import customtkinter as ctk
 
@@ -159,6 +163,53 @@ class TestOrdersUI(BaseUI):
         self.assertEqual(len(etiquetas), 2, "Los dos homónimos deben ser seleccionables")
         self.assertEqual(len({v._clientes_data[e]["id"] for e in etiquetas}), 2)
 
+    def test_tabla_se_refresca_al_editar_descripcion(self):
+        pid = db_manager.agregar_pedido({
+            "fecha": "2026-10-15", "descripcion": "descripcion original",
+            "precio_venta": 50.0, "estado": "pendiente"})
+        v = self._vista()
+        v.on_show()
+
+        def textos():
+            return " ".join(
+                w.cget("text")
+                for fila in v.frame_tabla_scroll.winfo_children()
+                for w in fila.winfo_children()
+            )
+
+        self.assertIn("descripcion original", textos())
+        db_manager.actualizar_pedido(pid, {
+            "fecha": "2026-10-15", "descripcion": "descripcion nueva",
+            "precio_venta": 50.0, "estado": "pendiente"})
+        v._aplicar_filtros()
+        self.assertIn("descripcion nueva", textos())
+        self.assertNotIn("descripcion original", textos())
+
+    def test_guardar_pedido_prellenado_desde_cotizacion_enlaza(self):
+        r = db_manager.crear_cotizacion(
+            fecha="2026-10-23", cliente_id=None, cliente_nombre="Ana",
+            validez_dias=7, notas="", condiciones="",
+            items=[dict(descripcion="Soporte", cantidad=2, material="PLA",
+                        gramos=100, horas=2, costo_material=2.0,
+                        costo_tiempo=10.0, filamento_id=None,
+                        precio_unitario=25.0)])
+
+        v = self._vista()
+        v.on_show()
+        v.prellenar({
+            "descripcion": "Soporte", "gramos": 200.0, "horas": 4.0,
+            "costo_material": 4.0, "costo_tiempo": 20.0,
+            "precio_sugerido": 50.0, "cotizacion_id": r["id"],
+        })
+        self.assertEqual(v._cotizacion_id, r["id"])
+        v._guardar_pedido()
+
+        self.assertEqual(self.errores, [])
+        cot = db_manager.obtener_cotizacion(r["id"])
+        self.assertEqual(cot["estado"], "aceptada")
+        self.assertIsNotNone(cot["pedido_id"])
+        self.assertEqual(db_manager.contar_pedidos(), 1)
+
 
 class TestExpensesUI(BaseUI):
 
@@ -195,6 +246,87 @@ class TestExpensesUI(BaseUI):
                          "La frecuencia debe guardarse como código, no como texto traducido")
 
 
+class TestQuotesUI(BaseUI):
+
+    def test_vista_carga_y_muestra_detalle(self):
+        r = db_manager.crear_cotizacion(
+            fecha="2026-10-23", cliente_id=None, cliente_nombre="Ana",
+            validez_dias=7, notas="", condiciones="",
+            items=[dict(descripcion="Soporte", cantidad=1, material="PLA",
+                        gramos=100, horas=2, costo_material=2.0,
+                        costo_tiempo=10.0, filamento_id=None,
+                        precio_unitario=25.0)])
+
+        from ui.quotes import QuotesView
+        v = QuotesView(self.root, MagicMock())
+        v.pack()
+        v.on_show()
+        self.assertEqual(len(v._cotizaciones), 1)
+
+        v._seleccionar(r["id"])
+        self.assertIsNotNone(v._seleccion)
+        self.assertEqual(v._seleccion["numero"], r["numero"])
+        v.destroy()
+
+    def test_detalle_pinta_el_color_del_estado(self):
+        from ui import theme as th
+        from utils.i18n import T
+
+        r = db_manager.crear_cotizacion(
+            fecha="2026-10-23", cliente_id=None, cliente_nombre="Ana",
+            validez_dias=7, notas="", condiciones="",
+            items=[dict(descripcion="Soporte", cantidad=1, material="PLA",
+                        gramos=100, horas=2, costo_material=2.0,
+                        costo_tiempo=10.0, filamento_id=None,
+                        precio_unitario=25.0)])
+
+        from ui.quotes import QuotesView
+        v = QuotesView(self.root, MagicMock())
+        v.pack()
+        v.on_show()
+        v._seleccionar(r["id"])
+        cab = v.frame_detalle.winfo_children()[0]
+        pill = next(w for w in cab.winfo_children()
+                    if isinstance(w, ctk.CTkLabel)
+                    and w.cget("text") == T("quote_status_borrador"))
+        self.assertEqual(pill.cget("fg_color"), th.SUB)
+        v.destroy()
+
+    def test_convertir_no_marca_aceptada_y_escala_cantidad(self):
+        r = db_manager.crear_cotizacion(
+            fecha="2026-10-23", cliente_id=None, cliente_nombre="Ana",
+            validez_dias=7, notas="", condiciones="",
+            items=[dict(descripcion="Soporte", cantidad=3, material="PLA",
+                        gramos=100, horas=2, costo_material=2.0,
+                        costo_tiempo=10.0, filamento_id=None,
+                        precio_unitario=25.0)])
+
+        capturado = {}
+        vista_pedidos = MagicMock()
+        vista_pedidos.prellenar.side_effect = lambda datos: capturado.update(datos)
+        app = MagicMock()
+        app._cache_vistas = {"pedidos": vista_pedidos}
+
+        from ui.quotes import QuotesView
+        v = QuotesView(self.root, app)
+        v.pack()
+        v.on_show()
+        v._convertir(db_manager.obtener_cotizacion(r["id"]))
+
+        self.assertEqual(capturado["gramos"], 300.0)
+        self.assertEqual(capturado["horas"], 6.0)
+        self.assertEqual(capturado["costo_material"], 6.0)
+        self.assertEqual(capturado["costo_tiempo"], 30.0)
+        self.assertEqual(capturado["precio_sugerido"], 75.0)
+        self.assertEqual(capturado["cotizacion_id"], r["id"])
+
+        actual = db_manager.obtener_cotizacion(r["id"])
+        self.assertEqual(actual["estado"], "borrador",
+                         "No debe aceptarse hasta que se guarde el pedido")
+        self.assertIsNone(actual["pedido_id"])
+        v.destroy()
+
+
 class TestRestoVistas(BaseUI):
     """Todas las vistas deben seguir construyéndose sin errores."""
 
@@ -208,10 +340,12 @@ class TestRestoVistas(BaseUI):
         from ui.reports import ReportsView
         from ui.calendar import CalendarView
         from ui.settings import SettingsView
+        from ui.quotes import QuotesView
         from ui.calculator import CalculatorWindow
 
         for cls in (DashboardView, OrdersView, ExpensesView, InventoryView,
-                    CatalogView, ClientsView, ReportsView, CalendarView, SettingsView):
+                    CatalogView, ClientsView, ReportsView, CalendarView,
+                    QuotesView, SettingsView):
             v = cls(self.root, MagicMock())
             self.assertIsNotNone(v)
             v.destroy()

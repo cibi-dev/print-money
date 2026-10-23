@@ -2,7 +2,6 @@
 # Genera facturas con logo del negocio, datos, tabla de items y pie de página
 
 import os
-import sys
 from xml.sax.saxutils import escape
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm
@@ -13,18 +12,14 @@ from reportlab.lib.enums import TA_CENTER, TA_RIGHT
 from reportlab.lib.colors import HexColor
 from datetime import datetime
 
+from utils.i18n import T
+from utils import paths
+
 
 # Paleta de colores de marca
 COLOR_NEGRO  = HexColor("#0F0F0F")
 COLOR_BLANCO = HexColor("#FFFFFF")
 COLOR_SUBTEXT = HexColor("#888888")
-
-# Carpeta donde viven los datos del usuario (junto al .exe si está compilado)
-if getattr(sys, 'frozen', False):
-    BASE_DIR = os.path.dirname(sys.executable)
-else:
-    BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
 
 def _txt(valor, defecto=""):
     """Convierte un valor a texto plano escapado para ReportLab.
@@ -46,12 +41,8 @@ def _num(valor, defecto=0.0):
 
 
 def _ruta_logo(ruta):
-    """Resuelve la ruta del logo: si es relativa, se busca junto al ejecutable."""
-    if not ruta:
-        return ""
-    if os.path.isabs(ruta):
-        return ruta
-    return os.path.join(BASE_DIR, ruta)
+    """Resuelve la ruta del logo contra los recursos de la aplicación."""
+    return paths.resolver_recurso(ruta)
 
 
 def generar_factura_pdf(pedido: dict, config: dict, ruta_salida: str):
@@ -90,19 +81,21 @@ def generar_factura_pdf(pedido: dict, config: dict, ruta_salida: str):
 
     # ── NOMBRE DEL NEGOCIO ──
     estilo_titulo = ParagraphStyle(
-        "titulo", fontSize=22, fontName="Helvetica-Bold",
+        "titulo", fontSize=22, leading=26, fontName="Helvetica-Bold",
         textColor=COLOR_NEGRO, alignment=TA_CENTER, spaceAfter=4
     )
-    story.append(Paragraph(_txt(negocio.get("nombre"), "Mi Negocio 3D"), estilo_titulo))
+    story.append(Paragraph(_txt(negocio.get("nombre"), T("quote_default_business")),
+                           estilo_titulo))
 
     estilo_sub = ParagraphStyle(
-        "sub", fontSize=9, fontName="Helvetica",
+        "sub", fontSize=9, leading=12, fontName="Helvetica",
         textColor=COLOR_SUBTEXT, alignment=TA_CENTER, spaceAfter=2
     )
     if negocio.get("direccion"):
         story.append(Paragraph(_txt(negocio["direccion"]), estilo_sub))
     if negocio.get("telefono"):
-        story.append(Paragraph(_txt(f"Tel: {negocio['telefono']}"), estilo_sub))
+        story.append(Paragraph(
+            _txt(f"{T('invoice_phone_label')} {negocio['telefono']}"), estilo_sub))
     if negocio.get("email"):
         story.append(Paragraph(_txt(negocio["email"]), estilo_sub))
 
@@ -114,11 +107,25 @@ def generar_factura_pdf(pedido: dict, config: dict, ruta_salida: str):
     num_factura = f"F-{int(_num(pedido.get('id'))):05d}"
     fecha_emision = datetime.now().strftime("%d/%m/%Y")
 
+    entrega = pedido.get("fecha_entrega") or ""
+    try:
+        entrega = datetime.strptime(str(entrega)[:10], "%Y-%m-%d").strftime("%d/%m/%Y")
+    except (TypeError, ValueError):
+        entrega = _txt(entrega, "—")
+
+    clave_estado = {
+        "pendiente": "status_pending",
+        "en proceso": "status_in_progress",
+        "completado": "status_completed",
+        "cancelado": "status_cancelled",
+    }.get((pedido.get("estado") or "").strip().lower())
+    estado_texto = T(clave_estado) if clave_estado else pedido.get("estado")
+
     data_enc = [
-        ["FACTURA", num_factura],
-        ["Fecha de emisión:", fecha_emision],
-        ["Fecha de entrega:", _txt(pedido.get("fecha_entrega"), "—")],
-        ["Estado:", _txt(pedido.get("estado"), "").upper()],
+        [T("invoice_title"), num_factura],
+        [T("invoice_issue_date"), fecha_emision],
+        [T("invoice_delivery_date"), entrega],
+        [T("invoice_status"), _txt(estado_texto).upper()],
     ]
     tabla_enc = Table(data_enc, colWidths=[W*0.5, W*0.5])
     tabla_enc.setStyle(TableStyle([
@@ -139,15 +146,16 @@ def generar_factura_pdf(pedido: dict, config: dict, ruta_salida: str):
     story.append(Spacer(1, 0.5*cm))
 
     # ── DATOS DEL CLIENTE ──
-    cliente_nombre = pedido.get("cliente_nombre") or "Cliente"
+    cliente_nombre = pedido.get("cliente_nombre") or T("invoice_default_client")
     estilo_cliente_titulo = ParagraphStyle(
-        "ct", fontSize=10, fontName="Helvetica-Bold",
+        "ct", fontSize=10, leading=12, fontName="Helvetica-Bold",
         textColor=COLOR_NEGRO, spaceAfter=2
     )
-    story.append(Paragraph("FACTURADO A:", estilo_cliente_titulo))
+    story.append(Paragraph(T("invoice_billed_to"), estilo_cliente_titulo))
     story.append(Paragraph(_txt(cliente_nombre),
-                           ParagraphStyle("cn", fontSize=12, fontName="Helvetica-Bold",
-                                         textColor=COLOR_NEGRO)))
+                           ParagraphStyle("cn", fontSize=12, leading=15,
+                                          fontName="Helvetica-Bold",
+                                          textColor=COLOR_NEGRO)))
     story.append(Spacer(1, 0.4*cm))
     story.append(HRFlowable(width=W, thickness=0.5, color=COLOR_SUBTEXT))
     story.append(Spacer(1, 0.4*cm))
@@ -160,17 +168,21 @@ def generar_factura_pdf(pedido: dict, config: dict, ruta_salida: str):
     estilo_celda_centro = ParagraphStyle("celda_c", parent=estilo_celda, alignment=TA_CENTER)
     estilo_celda_dcha = ParagraphStyle("celda_d", parent=estilo_celda, alignment=TA_RIGHT)
 
-    headers = ["Descripción", "Filamento", "Gramos", "Horas", "Monto"]
+    headers = [T("invoice_col_description"), T("invoice_col_material"),
+               T("invoice_col_qty"), T("invoice_col_unit"),
+               T("invoice_col_amount")]
+    precio_venta_fila = _num(pedido.get("precio_venta"))
     row_item = [
-        Paragraph(_txt(pedido.get("descripcion"), "Impresión 3D"), estilo_celda),
+        Paragraph(_txt(pedido.get("descripcion"), T("quote_default_description")),
+                  estilo_celda),
         Paragraph(_txt(pedido.get("filamento_nombre"), "—"), estilo_celda),
-        Paragraph(_txt(f"{_num(pedido.get('gramos_usados')):.1f} g"), estilo_celda_centro),
-        Paragraph(_txt(f"{_num(pedido.get('horas_impresion')):.1f} h"), estilo_celda_centro),
-        Paragraph(_txt(f"${_num(pedido.get('precio_venta')):.2f}"), estilo_celda_dcha),
+        Paragraph("1", estilo_celda_centro),
+        Paragraph(_txt(f"${precio_venta_fila:.2f}"), estilo_celda_dcha),
+        Paragraph(_txt(f"${precio_venta_fila:.2f}"), estilo_celda_dcha),
     ]
     tabla_items = Table(
         [headers, row_item],
-        colWidths=[W*0.35, W*0.2, W*0.12, W*0.12, W*0.21]
+        colWidths=[W*0.40, W*0.22, W*0.10, W*0.14, W*0.14]
     )
     tabla_items.setStyle(TableStyle([
         # Encabezado
@@ -192,35 +204,17 @@ def generar_factura_pdf(pedido: dict, config: dict, ruta_salida: str):
     story.append(tabla_items)
     story.append(Spacer(1, 0.4*cm))
 
-    # ── TABLA DE TOTALES ──
-    costo_mat = _num(pedido.get("costo_material"))
-    costo_tiempo = _num(pedido.get("costo_tiempo"))
-    costo_envio = _num(pedido.get("costo_envio"))
-    precio_venta = _num(pedido.get("precio_venta"))
-    ganancia = _num(pedido.get("ganancia"))
-
-    data_totales = [
-        ["Costo material:", f"${costo_mat:.2f}"],
-        ["Costo tiempo:", f"${costo_tiempo:.2f}"],
-        ["Costo envío:", f"${costo_envio:.2f}"],
-        ["─"*30, "─"*10],
-        ["TOTAL:", f"${precio_venta:.2f}"],
-        ["Ganancia:", f"${ganancia:.2f}"],
-    ]
+    # ── TOTAL ──
+    data_totales = [[T("invoice_total"), f"${precio_venta_fila:.2f}"]]
     tabla_totales = Table(data_totales, colWidths=[W*0.7, W*0.3])
     tabla_totales.setStyle(TableStyle([
-        ("FONTNAME",    (0, 0), (-1, -4), "Helvetica"),
-        ("FONTSIZE",    (0, 0), (-1, -1), 9),
-        ("TEXTCOLOR",   (0, 0), (-1, -4), COLOR_SUBTEXT),
+        ("FONTNAME",    (0, 0), (-1, -1), "Helvetica-Bold"),
+        ("FONTSIZE",    (0, 0), (-1, -1), 13),
+        ("TEXTCOLOR",   (0, 0), (-1, -1), COLOR_NEGRO),
         ("ALIGN",       (1, 0), (1, -1), "RIGHT"),
-        ("FONTNAME",    (0, -2), (-1, -2), "Helvetica-Bold"),
-        ("FONTSIZE",    (0, -2), (-1, -2), 13),
-        ("TEXTCOLOR",   (0, -2), (-1, -2), COLOR_NEGRO),
-        ("FONTNAME",    (0, -1), (-1, -1), "Helvetica-Bold"),
-        ("FONTSIZE",    (0, -1), (-1, -1), 10),
-        ("TEXTCOLOR",   (0, -1), (-1, -1), COLOR_NEGRO),
-        ("TOPPADDING",  (0, 0), (-1, -1), 3),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("LINEABOVE",   (0, 0), (-1, 0), 0.8, COLOR_NEGRO),
+        ("TOPPADDING",  (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
     ]))
     story.append(tabla_totales)
     story.append(Spacer(1, 0.8*cm))
@@ -228,17 +222,18 @@ def generar_factura_pdf(pedido: dict, config: dict, ruta_salida: str):
     # ── NOTAS ──
     notas = pedido.get("notas", "")
     if notas:
-        story.append(Paragraph("Notas:", estilo_cliente_titulo))
+        story.append(Paragraph(T("invoice_notes"), estilo_cliente_titulo))
         story.append(Paragraph(_txt(notas),
-                               ParagraphStyle("notas", fontSize=9, textColor=COLOR_SUBTEXT)))
+                               ParagraphStyle("notas", fontSize=9, leading=12,
+                                              textColor=COLOR_SUBTEXT)))
         story.append(Spacer(1, 0.6*cm))
 
     # ── PIE DE PÁGINA ──
     story.append(HRFlowable(width=W, thickness=0.5, color=COLOR_SUBTEXT))
     story.append(Spacer(1, 0.3*cm))
     story.append(Paragraph(
-        "¡Gracias por tu compra!  Impresión 3D de calidad.",
-        ParagraphStyle("pie", fontSize=10, fontName="Helvetica-Bold",
+        _txt(T("invoice_footer")),
+        ParagraphStyle("pie", fontSize=10, leading=12, fontName="Helvetica-Bold",
                        textColor=COLOR_NEGRO, alignment=TA_CENTER)
     ))
 

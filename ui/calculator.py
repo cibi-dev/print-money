@@ -5,14 +5,12 @@ import customtkinter as ctk
 import db_manager
 from utils.i18n import T
 from utils.labels import mapa_por_etiqueta
+from ui import theme as th
+from ui import components as ui
 
-COLOR_BG     = "#0F0F0F"
-COLOR_CARD   = "#1E1E1E"
-COLOR_ACCENT = "#00FF9D"
-COLOR_TEXT   = "#FFFFFF"
-COLOR_SUB    = "#888888"
-COLOR_BORDER = "#2D2D2D"
-COLOR_HOVER  = "#2A2A2A"
+
+def _sin_dos_puntos(texto):
+    return texto[:-1] if texto.endswith(":") else texto
 
 
 class CalculatorWindow(ctk.CTkToplevel):
@@ -21,9 +19,9 @@ class CalculatorWindow(ctk.CTkToplevel):
     def __init__(self, master):
         super().__init__(master)
         self.title(T("calc_title"))
-        self.geometry("400x620")
+        self.geometry("420x760")
         self.resizable(False, True)
-        self.configure(fg_color=COLOR_BG)
+        self.configure(fg_color=th.BG)
         self.attributes("-topmost", True)
 
         # Cargar configuración del app padre
@@ -34,150 +32,99 @@ class CalculatorWindow(ctk.CTkToplevel):
         self._construir_ui()
         self._cargar_filamentos()
 
-    def _label(self, parent, texto, size=12, color=COLOR_SUB, bold=False):
-        return ctk.CTkLabel(
-            parent, text=texto,
-            font=ctk.CTkFont(family="Segoe UI", size=size, weight="bold" if bold else "normal"),
-            text_color=color, anchor="w"
-        )
-
-    def _entry(self, parent, placeholder="0", width=None):
-        return ctk.CTkEntry(
-            parent, placeholder_text=placeholder,
-            fg_color=COLOR_CARD, border_color=COLOR_BORDER,
-            text_color=COLOR_TEXT, width=width or 340,
-            corner_radius=8, height=36
-        )
-
     def _construir_ui(self):
-        ctk.CTkLabel(
-            self, text=T("calc_title"),
-            font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
-            text_color=COLOR_ACCENT
-        ).pack(pady=(20, 4), padx=20, anchor="w")
+        header = ctk.CTkFrame(self, fg_color="transparent")
+        header.pack(fill="x", padx=20, pady=(16, 2))
+        ctk.CTkLabel(header, text="⚡", font=th.fuente(22, True),
+                     text_color=th.ACCENT).pack(side="left")
+        ctk.CTkLabel(header, text=T("calc_heading"),
+                     font=th.fuente(20, True),
+                     text_color=th.TEXT).pack(side="left", padx=(8, 0))
 
-        ctk.CTkLabel(
-            self, text=T("calc_subtitle"),
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color=COLOR_SUB
-        ).pack(padx=20, anchor="w")
+        ctk.CTkLabel(self, text=T("calc_subtitle"), font=th.fuente(11),
+                     text_color=th.SUB).pack(anchor="w", padx=20)
 
-        ctk.CTkFrame(self, height=1, fg_color=COLOR_BORDER).pack(fill="x", padx=20, pady=12)
+        ui.divider(self).pack(fill="x", padx=20, pady=(10, 6))
 
-        scroll = ctk.CTkScrollableFrame(self, fg_color="transparent", corner_radius=0)
-        scroll.pack(fill="both", expand=True, padx=20, pady=0)
+        scroll = ui.scrollable(self, corner_radius=0)
+        scroll.pack(fill="both", expand=True, padx=16, pady=0)
 
-        def row(text):
-            self._label(scroll, text).pack(anchor="w", pady=(10, 2))
+        card_datos = ui.card(scroll)
+        card_datos.pack(fill="x", pady=(0, 8))
 
-        row(T("calc_filament"))
-        self.combo_filamento = ctk.CTkOptionMenu(
-            scroll, values=[T("calc_select")],
-            fg_color=COLOR_CARD, button_color=COLOR_BORDER,
-            button_hover_color=COLOR_HOVER, text_color=COLOR_TEXT,
-            dropdown_fg_color=COLOR_CARD, corner_radius=8, height=36
-        )
-        self.combo_filamento.pack(fill="x")
+        ui.section_title(card_datos, T("calc_form_section")).pack(
+            anchor="w", padx=14, pady=(12, 6))
 
-        row(T("calc_grams"))
-        self.entry_gramos = self._entry(scroll, placeholder="100")
-        self.entry_gramos.pack(fill="x")
-        self.entry_gramos.bind("<KeyRelease>", lambda e: self._calcular())
+        ui.section_label(card_datos, T("calc_filament")).pack(
+            anchor="w", padx=14, pady=(4, 2))
+        self.combo_filamento = ui.option_menu(card_datos, values=[T("calc_select")])
+        self.combo_filamento.pack(fill="x", padx=14)
 
-        row(T("calc_hours"))
-        self.entry_horas = self._entry(scroll, placeholder="2.5")
-        self.entry_horas.pack(fill="x")
-        self.entry_horas.bind("<KeyRelease>", lambda e: self._calcular())
+        grid = ctk.CTkFrame(card_datos, fg_color="transparent")
+        grid.pack(fill="x", padx=14, pady=(2, 0))
+        grid.columnconfigure(0, weight=1, uniform="calc")
+        grid.columnconfigure(1, weight=1, uniform="calc")
 
-        row(T("calc_rate"))
-        self.entry_tarifa = ctk.CTkEntry(
-            scroll, placeholder_text=str(self.tarifa_default),
-            fg_color=COLOR_CARD, border_color=COLOR_BORDER,
-            text_color=COLOR_TEXT, corner_radius=8, height=36
-        )
-        self.entry_tarifa.pack(fill="x")
-        self.entry_tarifa.insert(0, str(self.tarifa_default))
-        self.entry_tarifa.bind("<KeyRelease>", lambda e: self._calcular())
+        def celda(fila, columna, etiqueta, atributo, placeholder, valor=None):
+            marco = ctk.CTkFrame(grid, fg_color="transparent")
+            marco.grid(row=fila, column=columna, sticky="ew",
+                       padx=(0, 4) if columna == 0 else (4, 0), pady=(6, 0))
+            ui.section_label(marco, etiqueta).pack(anchor="w", pady=(0, 2))
+            entrada = ui.entry(marco, placeholder)
+            entrada.pack(fill="x")
+            if valor is not None:
+                entrada.insert(0, str(valor))
+            entrada.bind("<KeyRelease>", lambda e: self._calcular())
+            setattr(self, atributo, entrada)
+
+        celda(0, 0, T("calc_grams"), "entry_gramos", "100")
+        celda(0, 1, T("calc_hours"), "entry_horas", "2.5")
+        celda(1, 0, T("calc_rate"), "entry_tarifa", "5.0", self.tarifa_default)
+        celda(1, 1, T("calc_margin"), "entry_margen", "40", self.margen_default)
 
         self.var_incluir_tiempo = ctk.BooleanVar(value=True)
-        ctk.CTkCheckBox(
-            scroll, text=T("calc_include_time"),
-            variable=self.var_incluir_tiempo,
-            text_color=COLOR_SUB, fg_color=COLOR_ACCENT,
-            hover_color="#00CC7A", checkmark_color="#000000",
-            command=self._calcular
-        ).pack(anchor="w", pady=(10, 0))
+        ui.checkbox(card_datos, T("calc_include_time"),
+                    self.var_incluir_tiempo,
+                    command=self._calcular).pack(anchor="w", padx=14, pady=(12, 12))
 
-        row(T("calc_margin"))
-        self.entry_margen = ctk.CTkEntry(
-            scroll, placeholder_text=str(self.margen_default),
-            fg_color=COLOR_CARD, border_color=COLOR_BORDER,
-            text_color=COLOR_TEXT, corner_radius=8, height=36
-        )
-        self.entry_margen.pack(fill="x")
-        self.entry_margen.insert(0, str(self.margen_default))
-        self.entry_margen.bind("<KeyRelease>", lambda e: self._calcular())
+        card_res = ui.card(scroll)
+        card_res.pack(fill="x", pady=(0, 8))
+        ui.section_title(card_res, T("calc_results_title")).pack(
+            anchor="w", padx=14, pady=(12, 6))
 
-        ctk.CTkFrame(scroll, height=1, fg_color=COLOR_BORDER).pack(fill="x", pady=14)
-
-        self._label(scroll, T("calc_results"), size=11, bold=True).pack(anchor="w")
-
-        frame_res = ctk.CTkFrame(scroll, fg_color=COLOR_CARD, corner_radius=12,
-                                 border_width=1, border_color=COLOR_BORDER)
-        frame_res.pack(fill="x", pady=6)
-
-        def res_row(texto, attr):
-            f = ctk.CTkFrame(frame_res, fg_color="transparent")
-            f.pack(fill="x", padx=14, pady=3)
-            self._label(f, texto, color=COLOR_SUB).pack(side="left")
-            lbl = ctk.CTkLabel(f, text="$0.00",
-                               font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
-                               text_color=COLOR_TEXT)
+        def res_row(texto, atributo):
+            fila = ctk.CTkFrame(card_res, fg_color="transparent")
+            fila.pack(fill="x", padx=14, pady=4)
+            ui.section_label(fila, texto).pack(side="left")
+            lbl = ctk.CTkLabel(fila, text="$0.00", font=th.fuente(13, True),
+                               text_color=th.TEXT)
             lbl.pack(side="right")
-            setattr(self, attr, lbl)
+            setattr(self, atributo, lbl)
 
-        res_row(T("calc_material_cost"),   "lbl_costo_mat")
-        res_row(T("calc_time_cost"),       "lbl_costo_tiempo")
-        res_row(T("calc_total_cost"),      "lbl_costo_total")
+        res_row(_sin_dos_puntos(T("calc_material_cost")), "lbl_costo_mat")
+        res_row(_sin_dos_puntos(T("calc_time_cost")), "lbl_costo_tiempo")
+        ui.divider(card_res).pack(fill="x", padx=14, pady=(6, 2))
+        res_row(_sin_dos_puntos(T("calc_total_cost")), "lbl_costo_total")
 
-        f_sug = ctk.CTkFrame(frame_res, fg_color="#252525", corner_radius=8)
-        f_sug.pack(fill="x", padx=10, pady=(6, 10))
-        ctk.CTkLabel(f_sug, text=T("calc_suggested"),
-                     font=ctk.CTkFont(family="Segoe UI", size=12),
-                     text_color=COLOR_SUB).pack(side="left", padx=14)
+        f_sug = ctk.CTkFrame(card_res, fg_color=th.ACCENT_DIM,
+                             corner_radius=th.RADIUS_INPUT)
+        f_sug.pack(fill="x", padx=10, pady=(8, 12))
+        ui.section_label(f_sug, T("calc_suggested")).pack(side="left", padx=14)
         self.lbl_precio_sug = ctk.CTkLabel(
             f_sug, text="$0.00",
-            font=ctk.CTkFont(family="Segoe UI", size=20, weight="bold"),
-            text_color=COLOR_ACCENT
+            font=th.fuente(22, True),
+            text_color=th.ACCENT
         )
-        self.lbl_precio_sug.pack(side="right", padx=14, pady=8)
+        self.lbl_precio_sug.pack(side="right", padx=14, pady=10)
 
-        ctk.CTkButton(
-            scroll, text=T("calc_copy_order"),
-            fg_color=COLOR_ACCENT, hover_color="#00CC7A",
-            text_color="#000000",
-            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
-            height=40, corner_radius=10,
-            command=self._copiar_a_pedido
-        ).pack(fill="x", pady=(6, 0))
+        ui.primary_button(
+            scroll, T("calc_copy_order"), self._copiar_a_pedido,
+            height=th.H_BTN_LG
+        ).pack(fill="x", pady=(2, 6))
 
-        ctk.CTkButton(
-            scroll, text=T("calc_copy_quote"),
-            fg_color=COLOR_CARD, hover_color=COLOR_HOVER,
-            text_color=COLOR_TEXT, border_width=1, border_color=COLOR_BORDER,
-            font=ctk.CTkFont(family="Segoe UI", size=13),
-            height=36, corner_radius=10,
-            command=self._copiar_cotizacion_texto
-        ).pack(fill="x", pady=(6, 0))
-
-        ctk.CTkButton(
-            scroll, text=T("calc_export_pdf"),
-            fg_color=COLOR_CARD, hover_color=COLOR_HOVER,
-            text_color=COLOR_TEXT, border_width=1, border_color=COLOR_BORDER,
-            font=ctk.CTkFont(family="Segoe UI", size=13),
-            height=36, corner_radius=10,
-            command=self._exportar_cotizacion_pdf
-        ).pack(fill="x", pady=(6, 14))
+        ui.secondary_button(
+            scroll, T("calc_quote"), self._abrir_cotizacion
+        ).pack(fill="x", pady=(0, 12))
 
     def _cargar_filamentos(self):
         filamentos = db_manager.obtener_filamentos()
@@ -219,6 +166,7 @@ class CalculatorWindow(ctk.CTkToplevel):
 
             self._ultimo_calculo = {
                 "filamento_id": fil.get("id"),
+                "material_nombre": nombre_fil,
                 "gramos": gramos,
                 "horas": horas,
                 "costo_material": costo_material,
@@ -249,56 +197,11 @@ class CalculatorWindow(ctk.CTkToplevel):
         # invisible y siempre encima, y se acumulaba una por cada clic.
         self.destroy()
 
-    def _obtener_datos_cotizacion(self):
-        try:
-            gramos = float(self.entry_gramos.get() or 0)
-            horas = float(self.entry_horas.get() or 0)
-        except (ValueError, TypeError):
-            gramos, horas = 0, 0
-
-        nombre_fil = self.combo_filamento.get()
-        if nombre_fil == T("calc_select"):
-            nombre_fil = T("calc_not_specified")
-
-        # Usar el valor calculado, no el texto del label: el label ya viene
-        # redondeado a 2 decimales y "nan" se convertía silenciosamente en 0.
-        calculo = getattr(self, "_ultimo_calculo", None) or {}
-        precio = calculo.get("precio_sugerido") or 0.0
-
-        return {
-            "producto": T("calc_product_3d"),
-            "material": nombre_fil,
-            "tiempo": f"{horas}",
-            "total": precio
-        }
-
-    def _copiar_cotizacion_texto(self):
-        import tkinter.messagebox as messagebox
-        datos = self._obtener_datos_cotizacion()
-        texto = T("calc_quote_msg",
-                  product=datos['producto'],
-                  material=datos['material'],
-                  time=datos['tiempo'],
-                  total=datos['total'])
-        self.clipboard_clear()
-        self.clipboard_append(texto)
-        self.update()
-        messagebox.showinfo(T("calc_copied"), T("calc_copied_msg"))
-
-    def _exportar_cotizacion_pdf(self):
-        import tkinter.filedialog as filedialog
-        import tkinter.messagebox as messagebox
-        from utils.export import exportar_cotizacion_pdf
-        
-        datos = self._obtener_datos_cotizacion()
-        ruta = filedialog.asksaveasfilename(
-            defaultextension=".pdf",
-            filetypes=[("PDF", "*.pdf")],
-            initialfile="Cotizacion.pdf"
-        )
-        if ruta:
-            try:
-                exportar_cotizacion_pdf(ruta, datos)
-                messagebox.showinfo(T("success"), T("calc_pdf_ok", path=ruta))
-            except Exception as e:
-                messagebox.showerror(T("error"), f"Error: {e}")
+    def _abrir_cotizacion(self):
+        datos = getattr(self, "_ultimo_calculo", None)
+        if not datos:
+            import tkinter.messagebox as messagebox
+            messagebox.showwarning(T("warning"), T("calc_invalid_values"), parent=self)
+            return
+        from ui.quote_dialog import QuoteDialog
+        QuoteDialog(self, self.app, datos)

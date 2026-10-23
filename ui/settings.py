@@ -5,21 +5,13 @@ import customtkinter as ctk
 from tkinter import filedialog, messagebox
 import json
 import os
+from utils.atomic_io import escribir_json_atomico
 from utils.i18n import T
+from utils import paths
+from ui import theme as th
+from ui import components as ui
 
-import sys
-if getattr(sys, 'frozen', False):
-    BASE_DIR = os.path.dirname(sys.executable)
-else:
-    BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-COLOR_BG     = "#0F0F0F"
-COLOR_CARD   = "#1E1E1E"
-COLOR_ACCENT = "#00FF9D"
-COLOR_TEXT   = "#FFFFFF"
-COLOR_SUB    = "#888888"
-COLOR_BORDER = "#2D2D2D"
-COLOR_HOVER  = "#2A2A2A"
+BASE_DIR = paths.DATA_DIR
 
 
 def cargar_config():
@@ -33,15 +25,14 @@ def cargar_config():
 
 def guardar_config(cfg):
     """Escribe config.json. Lanza OSError si el destino no es escribible."""
-    with open(os.path.join(BASE_DIR, "config.json"), "w", encoding="utf-8") as f:
-        json.dump(cfg, f, indent=4, ensure_ascii=False)
+    escribir_json_atomico(os.path.join(BASE_DIR, "config.json"), cfg)
 
 
 class SettingsView(ctk.CTkFrame):
     """Vista de configuración general de la aplicación."""
 
     def __init__(self, master, app, **kwargs):
-        super().__init__(master, fg_color=COLOR_BG, corner_radius=0, **kwargs)
+        super().__init__(master, fg_color=th.BG, corner_radius=0, **kwargs)
         self.app = app
         self.config_data = cargar_config()
         self._construir_ui()
@@ -53,20 +44,13 @@ class SettingsView(ctk.CTkFrame):
 
     def _construir_ui(self):
         """Construye el layout de la vista de configuración."""
-        frame_header = ctk.CTkFrame(self, fg_color="transparent")
-        frame_header.pack(fill="x", padx=28, pady=(22, 0))
-        ctk.CTkLabel(frame_header, text=T("settings_title"),
-                     font=ctk.CTkFont(family="Segoe UI", size=26, weight="bold"),
-                     text_color=COLOR_TEXT).pack(side="left")
-        ctk.CTkButton(frame_header, text=T("settings_save"),
-                      fg_color=COLOR_ACCENT, hover_color="#00CC7A",
-                      text_color="#000000", corner_radius=10,
-                      font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-                      command=self._guardar, width=160, height=36).pack(side="right")
+        _, acciones = ui.page_header(self, T("settings_title"), T("settings_subtitle"))
+        ui.primary_button(acciones, T("settings_save_short"), self._guardar,
+                          width=160).pack(side="right")
 
         # Scroll principal
-        scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
-        scroll.pack(fill="both", expand=True, padx=28, pady=14)
+        scroll = ui.scrollable(self)
+        scroll.pack(fill="both", expand=True, padx=th.PAD_PAGE, pady=14)
         scroll.columnconfigure(0, weight=1)
         scroll.columnconfigure(1, weight=1)
 
@@ -91,22 +75,16 @@ class SettingsView(ctk.CTkFrame):
         self._bloque_idioma(frame_idioma)
 
     def _seccion(self, parent, titulo):
-        frame = ctk.CTkFrame(parent, fg_color=COLOR_CARD, corner_radius=14,
-                             border_width=1, border_color=COLOR_BORDER)
-        ctk.CTkLabel(frame, text=titulo,
-                     font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
-                     text_color=COLOR_TEXT).pack(anchor="w", padx=16, pady=(14, 8))
-        ctk.CTkFrame(frame, height=1, fg_color=COLOR_BORDER).pack(fill="x", padx=16, pady=(0, 8))
+        frame = ui.card(parent)
+        ui.section_title(frame, titulo).pack(anchor="w", padx=16, pady=(14, 8))
+        ui.divider(frame).pack(fill="x", padx=16, pady=(0, 8))
         return frame
 
     def _lbl(self, parent, texto):
-        ctk.CTkLabel(parent, text=texto, text_color=COLOR_SUB,
-                     font=ctk.CTkFont(size=11)).pack(anchor="w", padx=16, pady=(6, 2))
+        ui.section_label(parent, texto).pack(anchor="w", padx=16, pady=(6, 2))
 
     def _ent(self, parent, ph=""):
-        e = ctk.CTkEntry(parent, placeholder_text=ph, fg_color="#252525",
-                         border_color=COLOR_BORDER, text_color=COLOR_TEXT,
-                         corner_radius=8, height=34)
+        e = ui.entry(parent, ph)
         e.pack(fill="x", padx=16, pady=(0, 4))
         return e
 
@@ -126,13 +104,10 @@ class SettingsView(ctk.CTkFrame):
         self._lbl(parent, T("settings_biz_logo"))
         frame_logo = ctk.CTkFrame(parent, fg_color="transparent")
         frame_logo.pack(fill="x", padx=16, pady=(0, 12))
-        self.ent_logo = ctk.CTkEntry(frame_logo, placeholder_text=T("settings_biz_logo_ph"),
-                                     fg_color="#252525", border_color=COLOR_BORDER,
-                                     text_color=COLOR_TEXT, corner_radius=8, height=34)
+        self.ent_logo = ui.entry(frame_logo, T("settings_biz_logo_ph"))
         self.ent_logo.pack(side="left", fill="x", expand=True, padx=(0, 6))
-        ctk.CTkButton(frame_logo, text="📁", width=38, height=34,
-                      fg_color=COLOR_CARD, hover_color=COLOR_HOVER,
-                      text_color=COLOR_ACCENT, command=self._seleccionar_logo).pack(side="right")
+        ui.icon_button(frame_logo, "📁",
+                       self._seleccionar_logo).pack(side="right")
 
     def _seleccionar_logo(self):
         ruta = filedialog.askopenfilename(
@@ -157,29 +132,19 @@ class SettingsView(ctk.CTkFrame):
 
     def _bloque_notif(self, parent):
         self.var_notif = ctk.BooleanVar(value=True)
-        ctk.CTkCheckBox(parent, text=T("settings_notif_chk"),
-                        variable=self.var_notif, fg_color=COLOR_ACCENT,
-                        hover_color="#00CC7A", checkmark_color="#000000",
-                        text_color=COLOR_SUB, font=ctk.CTkFont(size=12)
-                        ).pack(anchor="w", padx=16, pady=(4, 8))
+        ui.checkbox(parent, T("settings_notif_chk"),
+                    self.var_notif).pack(anchor="w", padx=16, pady=(4, 8))
 
         self._lbl(parent, T("settings_backup_dir"))
         frame_bk = ctk.CTkFrame(parent, fg_color="transparent")
         frame_bk.pack(fill="x", padx=16, pady=(0, 8))
-        self.ent_backup = ctk.CTkEntry(frame_bk, placeholder_text="data/backups",
-                                       fg_color="#252525", border_color=COLOR_BORDER,
-                                       text_color=COLOR_TEXT, corner_radius=8, height=34)
+        self.ent_backup = ui.entry(frame_bk, "data/backups")
         self.ent_backup.pack(side="left", fill="x", expand=True, padx=(0, 6))
-        ctk.CTkButton(frame_bk, text="📁", width=38, height=34,
-                      fg_color=COLOR_CARD, hover_color=COLOR_HOVER,
-                      text_color=COLOR_ACCENT, command=self._seleccionar_backup_dir
-                      ).pack(side="right")
+        ui.icon_button(frame_bk, "📁",
+                       self._seleccionar_backup_dir).pack(side="right")
 
-        ctk.CTkButton(parent, text=T("settings_backup_now"),
-                      fg_color=COLOR_CARD, hover_color=COLOR_HOVER,
-                      text_color=COLOR_TEXT, height=34, corner_radius=10,
-                      command=self._hacer_backup_manual
-                      ).pack(fill="x", padx=16, pady=(4, 12))
+        ui.secondary_button(parent, T("settings_backup_now"),
+                            self._hacer_backup_manual).pack(fill="x", padx=16, pady=(4, 12))
 
     def _seleccionar_backup_dir(self):
         dir_ = filedialog.askdirectory(title=T("settings_backup_sel"))
@@ -203,27 +168,21 @@ class SettingsView(ctk.CTkFrame):
 
     def _bloque_idioma(self, parent):
         self._lbl(parent, T("settings_lang_label"))
-        self.combo_idioma = ctk.CTkOptionMenu(
-            parent, values=["Español (es)", "English (en)"],
-            fg_color="#252525", button_color=COLOR_BORDER,
-            text_color=COLOR_TEXT, dropdown_fg_color=COLOR_CARD,
-            corner_radius=8, height=34
+        self.combo_idioma = ui.option_menu(
+            parent, values=["Español (es)", "English (en)"]
         )
         self.combo_idioma.pack(fill="x", padx=16, pady=(0, 8))
 
         ctk.CTkLabel(parent,
                      text=T("settings_lang_note"),
-                     text_color=COLOR_SUB, font=ctk.CTkFont(size=10), justify="left"
+                     text_color=th.SUB, font=th.fuente(10), justify="left"
                      ).pack(anchor="w", padx=16, pady=(0, 12))
 
-        ctk.CTkFrame(parent, height=1, fg_color=COLOR_BORDER).pack(fill="x", padx=16, pady=8)
+        ui.divider(parent).pack(fill="x", padx=16, pady=8)
 
         # ── Tutorial Reset ──
-        ctk.CTkButton(parent, text=T("settings_tutorial"),
-                      fg_color=COLOR_CARD, hover_color=COLOR_HOVER,
-                      text_color=COLOR_TEXT, height=34, corner_radius=10,
-                      command=self._resetear_tutorial
-                      ).pack(fill="x", padx=16, pady=(4, 12))
+        ui.secondary_button(parent, T("settings_tutorial"),
+                            self._resetear_tutorial).pack(fill="x", padx=16, pady=(4, 12))
 
     def _resetear_tutorial(self):
         self.config_data["primera_ejecucion"] = True

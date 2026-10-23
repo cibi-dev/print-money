@@ -15,6 +15,12 @@ import unittest
 SRC = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SRC)
 
+# Aislar la carpeta de datos para que los tests no lean ni escriban en
+# %APPDATA%\PrintMoney.
+os.environ.setdefault("PRINTMONEY_DATA_DIR",
+                      tempfile.mkdtemp(prefix="pm_appdata_"))
+os.environ.setdefault("PRINTMONEY_DISABLE_MIGRATION", "1")
+
 import db_manager
 
 
@@ -216,6 +222,17 @@ class TestFacturaPDF(unittest.TestCase):
                        "descripcion": "Impresión 3D personalizada", "precio_venta": 42.5,
                        "estado": "completado"})
 
+    def test_factura_en_ingles_genera_ok(self):
+        from utils.i18n import get_idioma, set_idioma
+        anterior = get_idioma()
+        try:
+            set_idioma("en")
+            self._factura({"id": 4, "cliente_nombre": "John Doe",
+                           "descripcion": "Custom 3D print", "precio_venta": 20,
+                           "estado": "completado"})
+        finally:
+            set_idioma(anterior)
+
 
 # ===========================================================================
 # CRÍTICO 6 — La segunda notificación debe llegar
@@ -391,6 +408,444 @@ class TestResumenAnual(BaseDB):
         self.assertEqual(marzo["ganancia_neta"], 70.0)  # (150 - 50) - 30
         self.assertEqual(marzo["num_pedidos"], 1)
         self.assertEqual(resumen[1]["ingresos"], 0.0)
+
+    def test_estadisticas_mes_usan_margen_neto(self):
+        """El Dashboard y Reportes deben mostrar el mismo margen sobre ventas."""
+        self._pedido(precio_venta=100.0, costo_material=30.0, costo_tiempo=10.0,
+                     fecha="2026-05-10", estado="entregado")
+        db_manager.agregar_gasto(monto=20.0, categoria_id=None,
+                                  descripcion="Luz", fecha="2026-05-15")
+
+        mes = db_manager.obtener_estadisticas_mes(2026, 5)
+        anual = db_manager.obtener_resumen_anual(2026)
+        self.assertEqual(mes["ganancia_neta"], 40.0)
+        self.assertAlmostEqual(mes["margen"], 40.0, places=1)
+        self.assertAlmostEqual(mes["margen"], anual["margen"], places=1)
+
+
+# ===========================================================================
+# COTIZACIONES — numeración, totales, estados y borrado en cascada
+# ===========================================================================
+class TestCotizaciones(BaseDB):
+
+    def _cot(self, **kw):
+        datos = dict(
+            fecha="2026-10-23", cliente_id=None, cliente_nombre="Ana",
+            validez_dias=7, notas="", condiciones="",
+            items=[dict(descripcion="Soporte", cantidad=2, material="PLA",
+                        gramos=100, horas=2, costo_material=2.0,
+                        costo_tiempo=10.0, filamento_id=None,
+                        precio_unitario=25.0)],
+        )
+        datos.update(kw)
+        return db_manager.crear_cotizacion(**datos)
+
+    def test_numeracion_secuencial_por_anio(self):
+        r1 = self._cot()
+        r2 = self._cot()
+        self.assertEqual(r1["numero"], "C-2026-0001")
+        self.assertEqual(r2["numero"], "C-2026-0002")
+        r3 = self._cot(fecha="2027-01-05")
+        self.assertEqual(r3["numero"], "C-2027-0001")
+
+    def test_total_multiplica_cantidad(self):
+        r = self._cot()
+        self.assertEqual(r["subtotal"], 50.0)
+        self.assertEqual(r["total"], 50.0)
+
+    def test_obtener_incluye_items(self):
+        r = self._cot()
+        cot = db_manager.obtener_cotizacion(r["id"])
+        self.assertEqual(cot["numero"], r["numero"])
+        self.assertEqual(len(cot["items"]), 1)
+        self.assertEqual(cot["items"][0]["descripcion"], "Soporte")
+        self.assertEqual(cot["items"][0]["cantidad"], 2)
+
+    def test_estado_y_conversion(self):
+        r = self._cot()
+        db_manager.actualizar_estado_cotizacion(r["id"], "enviada")
+        self.assertEqual(db_manager.obtener_cotizacion(r["id"])["estado"], "enviada")
+        db_manager.marcar_cotizacion_convertida(r["id"])
+        self.assertEqual(db_manager.obtener_cotizacion(r["id"])["estado"], "aceptada")
+        with self.assertRaises(ValueError):
+            db_manager.actualizar_estado_cotizacion(r["id"], "inventado")
+
+    def test_eliminar_borra_items(self):
+        r = self._cot()
+        db_manager.eliminar_cotizacion(r["id"])
+        self.assertIsNone(db_manager.obtener_cotizacion(r["id"]))
+        with db_manager.obtener_conexion() as conn:
+            total = conn.execute("SELECT COUNT(*) FROM cotizacion_items").fetchone()[0]
+        self.assertEqual(total, 0)
+
+    def test_busqueda_por_cliente_descripcion_y_estado(self):
+        self._cot(cliente_nombre="Ana Pérez")
+        self._cot(cliente_nombre="Luis Gómez")
+        self.assertEqual(len(db_manager.obtener_cotizaciones(filtro_texto="Ana")), 1)
+        self.assertEqual(len(db_manager.obtener_cotizaciones(filtro_texto="Soporte")), 2)
+        self.assertEqual(len(db_manager.obtener_cotizaciones(filtro_estado="borrador")), 2)
+
+    def test_agregar_pedido_desde_cotizacion_marca_aceptada_y_enlaza(self):
+        fil = self._fil()
+        r = self._cot()  # cantidad 2: 200 g, 4 h, costes 4/20, precio 50
+        pid = db_manager.agregar_pedido({
+            "fecha": "2026-10-23", "descripcion": "Soporte",
+            "filamento_id": fil["id"], "gramos_usados": 200.0,
+            "horas_impresion": 4.0, "costo_material": 4.0,
+            "costo_tiempo": 20.0, "precio_venta": 50.0, "estado": "pendiente",
+        }, cotizacion_id=r["id"])
+
+        cot = db_manager.obtener_cotizacion(r["id"])
+        self.assertEqual(cot["estado"], "aceptada")
+        self.assertEqual(cot["pedido_id"], pid)
+        self.assertEqual(db_manager.obtener_filamentos()[0]["gramos_restantes"], 800.0)
+
+        # Un segundo guardado no debe reenlazar la cotización a otro pedido
+        db_manager.agregar_pedido({"fecha": "2026-10-24", "precio_venta": 1.0},
+                                  cotizacion_id=r["id"])
+        self.assertEqual(db_manager.obtener_cotizacion(r["id"])["pedido_id"], pid)
+
+
+# ===========================================================================
+# COTIZACIONES — contrato, texto y PDF
+# ===========================================================================
+class TestCotizacionRender(unittest.TestCase):
+
+    def setUp(self):
+        try:
+            import reportlab  # noqa: F401
+        except ImportError:
+            self.skipTest("reportlab no instalado")
+
+    def _cot(self):
+        from utils import quotes
+        return quotes.construir_cotizacion(
+            numero="C-2026-0001", fecha="2026-10-23", validez_dias=7,
+            negocio={"nombre": "Negocio <3D> & Co", "direccion": "Calle 1"},
+            cliente={"nombre": "Jose <b>", "email": "jose@mail.com"},
+            items=[{"descripcion": "Soporte <grande> & especial", "cantidad": 2,
+                    "precio_unitario": 12.5}],
+            notas="Entregar antes del <viernes>",
+        )
+
+    def test_vence_se_calcula_desde_la_fecha(self):
+        self.assertEqual(self._cot()["vence"], "2026-10-30")
+
+    def test_texto_incluye_numero_cliente_y_total(self):
+        from utils import quotes
+        texto = quotes.render_texto(self._cot())
+        self.assertIn("C-2026-0001", texto)
+        self.assertIn("Jose <b>", texto)
+        self.assertIn("$25.00", texto)
+
+    def test_pdf_no_rompe_con_caracteres_especiales(self):
+        from utils import quotes
+        ruta = os.path.join(tempfile.mkdtemp(prefix="pm_qpdf_"), "q.pdf")
+        quotes.render_pdf(self._cot(), ruta)
+        self.assertTrue(os.path.exists(ruta))
+        self.assertGreater(os.path.getsize(ruta), 500)
+
+    def test_desde_registro_reconstruye_vence(self):
+        from utils import quotes
+        registro = {"numero": "C-2026-0009", "fecha": "2026-10-23",
+                    "validez_dias": 7, "cliente_nombre": "Ana",
+                    "items": [{"descripcion": "X", "cantidad": 1,
+                               "precio_unitario": 10}],
+                    "total": 10}
+        cot = quotes.desde_registro(registro, {"nombre": "Negocio"})
+        self.assertEqual(cot["vence"], "2026-10-30")
+        self.assertEqual(cot["negocio"]["nombre"], "Negocio")
+
+
+# ===========================================================================
+# I18N — factura y exportaciones
+# ===========================================================================
+class TestI18nExport(BaseDB):
+
+    def setUp(self):
+        super().setUp()
+        from utils.i18n import get_idioma
+        self._idioma_original = get_idioma()
+
+    def tearDown(self):
+        from utils.i18n import set_idioma
+        set_idioma(self._idioma_original)
+        super().tearDown()
+
+    def test_etiquetas_de_factura_y_reportes_en_ingles(self):
+        from utils.i18n import T, set_idioma
+        set_idioma("en")
+        self.assertEqual(T("invoice_title"), "INVOICE")
+        self.assertEqual(T("invoice_col_description"), "Description")
+        self.assertEqual(T("reports_col_month"), "Month")
+        self.assertEqual(T("months_full")[0], "January")
+
+    def test_importar_export_no_carga_pandas(self):
+        import subprocess
+        codigo = "import sys; import utils.export; print('pandas' in sys.modules)"
+        res = subprocess.run([sys.executable, "-c", codigo], cwd=SRC,
+                             capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(res.stdout.strip(), "False",
+                         "utils.export no debe importar pandas hasta exportar Excel")
+
+    def test_excel_en_ingles_usa_meses_y_hojas_traducidas(self):
+        try:
+            import openpyxl
+        except ImportError:
+            self.skipTest("openpyxl no instalado")
+
+        from utils.i18n import set_idioma
+        from utils.export import exportar_excel
+        set_idioma("en")
+        ruta = os.path.join(self.tmp, "reporte_en.xlsx")
+        exportar_excel(ruta, 2026)
+
+        wb = openpyxl.load_workbook(ruta)
+        self.assertIn("Monthly Summary", wb.sheetnames)
+        ws = wb["Monthly Summary"]
+        self.assertEqual(ws["A1"].value, "Month")
+        self.assertEqual(ws["A2"].value, "January")
+        self.assertEqual(ws["B1"].value, "Income ($)")
+
+    def test_pdf_reporte_en_ingles_no_rompe(self):
+        from utils.i18n import set_idioma
+        from utils.export import exportar_pdf_reporte
+        set_idioma("en")
+        ruta = os.path.join(self.tmp, "reporte_en.pdf")
+        exportar_pdf_reporte(ruta, 2026)
+        self.assertTrue(os.path.isfile(ruta))
+        self.assertGreater(os.path.getsize(ruta), 500)
+
+
+# ===========================================================================
+# MIGRACIONES — versión de esquema y columnas antiguas
+# ===========================================================================
+class TestMigraciones(BaseDB):
+
+    def test_bd_nueva_queda_en_la_version_actual(self):
+        with db_manager.obtener_conexion() as conn:
+            version = conn.execute("PRAGMA user_version").fetchone()[0]
+        self.assertEqual(version, db_manager.SCHEMA_VERSION)
+
+    def test_migra_bd_antigua_sin_factura_generada(self):
+        ruta = os.path.join(self.tmp, "antigua.db")
+        conn = sqlite3.connect(ruta)
+        conn.execute("""
+            CREATE TABLE pedidos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                fecha TEXT DEFAULT (date('now')),
+                cliente_id INTEGER,
+                descripcion TEXT,
+                filamento_id INTEGER,
+                gramos_usados REAL DEFAULT 0,
+                horas_impresion REAL DEFAULT 0,
+                costo_material REAL DEFAULT 0,
+                costo_tiempo REAL DEFAULT 0,
+                costo_envio REAL DEFAULT 0,
+                precio_venta REAL DEFAULT 0,
+                ganancia REAL DEFAULT 0,
+                margen_porcentaje REAL DEFAULT 0,
+                fecha_entrega TEXT,
+                estado TEXT DEFAULT 'pendiente',
+                notas TEXT
+            )
+        """)
+        conn.execute("PRAGMA user_version = 0")
+        conn.commit()
+        conn.close()
+
+        original = db_manager.DB_PATH
+        db_manager.DB_PATH = ruta
+        try:
+            db_manager.inicializar_db()
+            conn = sqlite3.connect(ruta)
+            try:
+                columnas = {fila[1] for fila in
+                            conn.execute("PRAGMA table_info(pedidos)")}
+                version = conn.execute("PRAGMA user_version").fetchone()[0]
+            finally:
+                conn.close()
+        finally:
+            db_manager.DB_PATH = original
+
+        self.assertIn("factura_generada", columnas)
+        self.assertEqual(version, db_manager.SCHEMA_VERSION)
+
+
+class TestMigracionDatos(unittest.TestCase):
+
+    def test_copia_config_db_y_backups_sin_borrar_origen(self):
+        import json
+        import subprocess
+
+        legacy = tempfile.mkdtemp(prefix="pm_legacy_")
+        datos = tempfile.mkdtemp(prefix="pm_datos_")
+        try:
+            os.makedirs(os.path.join(legacy, "data", "backups"))
+            with open(os.path.join(legacy, "config.json"), "w",
+                      encoding="utf-8") as f:
+                json.dump({"idioma": "en", "marca": "legacy"}, f)
+
+            conn = sqlite3.connect(os.path.join(legacy, "data", "printmoney.db"))
+            try:
+                conn.execute("CREATE TABLE pedidos "
+                             "(id INTEGER PRIMARY KEY, descripcion TEXT)")
+                conn.execute("INSERT INTO pedidos (descripcion) VALUES ('heredado')")
+                conn.commit()
+            finally:
+                conn.close()
+
+            with open(os.path.join(legacy, "data", "backups",
+                                   "backup_2026-10-01.db"), "wb") as f:
+                f.write(b"backup")
+
+            env = os.environ.copy()
+            env.update({
+                "PRINTMONEY_DATA_DIR": datos,
+                "PRINTMONEY_LEGACY_DIR": legacy,
+                "PRINTMONEY_DISABLE_MIGRATION": "0",
+            })
+            codigo = """
+import json, os, sqlite3
+import utils.paths as p
+r = p.migrar_datos_legados()
+print(r['config'], r['db'], r['backups'])
+print(os.path.exists(p.CONFIG_PATH), os.path.exists(p.DB_PATH))
+print(os.path.exists(os.path.join(p.BACKUP_DIR, 'backup_2026-10-01.db')))
+print(json.load(open(p.CONFIG_PATH, encoding='utf-8'))['marca'])
+c = sqlite3.connect(p.DB_PATH)
+print(c.execute('SELECT descripcion FROM pedidos').fetchone()[0])
+c.close()
+print(os.path.exists(os.path.join(p.legacy_dir(), 'config.json')))
+"""
+            res = subprocess.run([sys.executable, "-c", codigo], cwd=SRC,
+                                 env=env, capture_output=True, text=True)
+            self.assertEqual(res.returncode, 0, res.stderr)
+            lineas = res.stdout.strip().splitlines()
+            self.assertEqual(lineas[0], "True True 1")
+            self.assertEqual(lineas[1], "True True")
+            self.assertEqual(lineas[2], "True")
+            self.assertEqual(lineas[3], "legacy")
+            self.assertEqual(lineas[4], "heredado")
+            self.assertEqual(lineas[5], "True",
+                             "La migración no debe borrar los archivos originales")
+        finally:
+            shutil.rmtree(legacy, ignore_errors=True)
+            shutil.rmtree(datos, ignore_errors=True)
+
+
+class TestInstanciaUnica(unittest.TestCase):
+
+    def test_segunda_instancia_detecta_el_mutex(self):
+        if os.name != "nt":
+            self.skipTest("El mutex de instancia única es de Windows")
+        import subprocess
+        codigo = (
+            "import os, main;"
+            "n = f'PrintMoney.Test.{os.getpid()}';"
+            "h1 = main._crear_mutex_instancia(n);"
+            "h2 = main._crear_mutex_instancia(n);"
+            "print(h1 is not None, h2 is None)"
+        )
+        res = subprocess.run([sys.executable, "-c", codigo], cwd=SRC,
+                             capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(res.stdout.strip(), "True True")
+
+
+class TestPragmas(BaseDB):
+
+    def test_journal_mode_wal(self):
+        """inicializar_db() debe dejar el archivo en WAL (es persistente)."""
+        conn = sqlite3.connect(db_manager.DB_PATH)
+        try:
+            modo = conn.execute("PRAGMA journal_mode").fetchone()[0]
+        finally:
+            conn.close()
+        self.assertEqual(modo.lower(), "wal",
+                         "journal_mode debe quedar en wal tras inicializar_db()")
+
+    def test_synchronous_normal(self):
+        """synchronous es por conexión: debe valer 1 (NORMAL) en cada una."""
+        with db_manager.obtener_conexion() as conn:
+            valor = conn.execute("PRAGMA synchronous").fetchone()[0]
+        self.assertEqual(valor, 1, "synchronous debe ser NORMAL (1)")
+
+    def test_inicializar_db_es_idempotente(self):
+        """Fijar WAL dos veces seguidas no debe fallar ni salir del modo wal."""
+        db_manager.inicializar_db()
+        conn = sqlite3.connect(db_manager.DB_PATH)
+        try:
+            modo = conn.execute("PRAGMA journal_mode").fetchone()[0]
+        finally:
+            conn.close()
+        self.assertEqual(modo.lower(), "wal")
+
+    def test_copia_segura_genera_backup_valido_con_los_datos(self):
+        """Round-trip: pedido + gasto -> backup -> el backup los contiene."""
+        pid = self._pedido(fecha="2026-10-05", descripcion="pedido de backup",
+                           precio_venta=100.0, estado="completado")
+        db_manager.agregar_gasto("2026-10-06", 1, "Filamento", 25.0)
+
+        ruta = os.path.join(self.tmp, "backup_test.db")
+        db_manager._copiar_db_segura(ruta)
+        self.assertTrue(os.path.isfile(ruta), "El backup debe existir en disco")
+
+        conn = sqlite3.connect(ruta)
+        try:
+            self.assertEqual(
+                conn.execute("PRAGMA integrity_check").fetchone()[0], "ok",
+                "El backup debe ser una base SQLite válida")
+            fila = conn.execute("SELECT id, descripcion FROM pedidos").fetchone()
+            self.assertEqual(fila[0], pid)
+            self.assertEqual(fila[1], "pedido de backup")
+            self.assertEqual(
+                conn.execute("SELECT COUNT(*) FROM gastos").fetchone()[0], 1)
+        finally:
+            conn.close()
+
+    def test_backup_manual_publico_contiene_el_pedido(self):
+        """La función pública de backup también es consistente con WAL."""
+        pid = self._pedido(fecha="2026-10-07", descripcion="pedido backup manual",
+                           precio_venta=10.0)
+        # `ruta_backups()` respeta config.json y apuntaría a la carpeta real del
+        # proyecto; se redirige a la temporal para no ensuciar data/backups.
+        original = db_manager.ruta_backups
+        db_manager.ruta_backups = lambda: os.path.join(self.tmp, "backups_manual")
+        try:
+            ruta = db_manager.hacer_backup_manual()
+        finally:
+            db_manager.ruta_backups = original
+
+        self.assertTrue(os.path.isfile(ruta))
+        conn = sqlite3.connect(ruta)
+        try:
+            ids = [r[0] for r in conn.execute("SELECT id FROM pedidos")]
+        finally:
+            conn.close()
+        self.assertIn(pid, ids, "El backup manual debe contener el pedido insertado")
+
+    def test_backups_manuales_del_mismo_dia_no_se_sobrescriben(self):
+        from datetime import datetime as real_datetime
+        from unittest.mock import patch
+
+        original = db_manager.ruta_backups
+        db_manager.ruta_backups = lambda: os.path.join(self.tmp, "backups_seq")
+        try:
+            with patch("db_manager.datetime") as mock_dt:
+                mock_dt.now.side_effect = [
+                    real_datetime(2026, 10, 23, 10, 0, 1),
+                    real_datetime(2026, 10, 23, 10, 0, 2),
+                ]
+                ruta1 = db_manager.hacer_backup_manual()
+                ruta2 = db_manager.hacer_backup_manual()
+        finally:
+            db_manager.ruta_backups = original
+
+        self.assertNotEqual(ruta1, ruta2)
+        self.assertTrue(os.path.isfile(ruta1))
+        self.assertTrue(os.path.isfile(ruta2))
 
 
 if __name__ == "__main__":

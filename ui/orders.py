@@ -5,26 +5,16 @@ import customtkinter as ctk
 from tkinter import messagebox, filedialog
 from datetime import date, datetime
 import db_manager
-from utils.pdf_invoice import generar_factura_pdf
 from utils.i18n import T
 from utils.labels import mapa_por_etiqueta
+from utils import paths
+from ui import theme as th
+from ui import components as ui
 import json, os
 import threading
 
-import sys
-if getattr(sys, 'frozen', False):
-    BASE_DIR = os.path.dirname(sys.executable)
-else:
-    BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR = paths.DATA_DIR
 
-COLOR_BG     = "#0F0F0F"
-COLOR_CARD   = "#1E1E1E"
-COLOR_ACCENT = "#00FF9D"
-COLOR_TEXT   = "#FFFFFF"
-COLOR_SUB    = "#888888"
-COLOR_RED    = "#FF4C4C"
-COLOR_BORDER = "#2D2D2D"
-COLOR_HOVER  = "#2A2A2A"
 ESTADOS = ["pendiente", "en proceso", "completado", "cancelado"]
 
 # Pedidos por página. Antes se renderizaban TODOS los pedidos de golpe: con
@@ -46,9 +36,10 @@ class OrdersView(ctk.CTkFrame):
     """Vista principal de gestión de pedidos."""
 
     def __init__(self, master, app, **kwargs):
-        super().__init__(master, fg_color=COLOR_BG, corner_radius=0, **kwargs)
+        super().__init__(master, fg_color=th.BG, corner_radius=0, **kwargs)
         self.app = app
         self._pedido_editando = None   # ID del pedido en edición
+        self._cotizacion_id = None     # cotización que originó el formulario
         self._pagina = 0               # página visible (base 0)
         self._total_filtrados = 0      # pedidos que cumplen el filtro
         self._total_paginas = 1
@@ -90,191 +81,202 @@ class OrdersView(ctk.CTkFrame):
     def _construir_ui(self):
         """Construye el layout de dos paneles: tabla izq. / formulario der."""
         # ── Encabezado ──
-        frame_header = ctk.CTkFrame(self, fg_color="transparent")
-        frame_header.pack(fill="x", padx=28, pady=(22, 0))
+        _, acciones = ui.page_header(self, T("orders_title"))
 
-        ctk.CTkLabel(frame_header, text=T("orders_title"),
-                     font=ctk.CTkFont(family="Segoe UI", size=26, weight="bold"),
-                     text_color=COLOR_TEXT).pack(side="left")
-
-        ctk.CTkButton(frame_header, text=T("orders_new"),
-                      fg_color=COLOR_ACCENT, hover_color="#00CC7A",
-                      text_color="#000000", corner_radius=10,
-                      font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-                      command=self._nuevo_pedido, width=140, height=36).pack(side="right")
+        ui.primary_button(acciones, T("orders_new"), self._nuevo_pedido,
+                          width=150).pack(side="right")
 
         # ── Barra de filtros ──
-        frame_filtros = ctk.CTkFrame(self, fg_color=COLOR_CARD, corner_radius=12)
-        frame_filtros.pack(fill="x", padx=28, pady=12)
+        frame_filtros = ui.card(self, corner_radius=th.RADIUS_CARD)
+        frame_filtros.pack(fill="x", padx=th.PAD_PAGE, pady=12)
 
-        ctk.CTkLabel(frame_filtros, text=T("orders_search"), text_color=COLOR_SUB,
-                     font=ctk.CTkFont(size=12)).pack(side="left", padx=(10, 4), pady=8)
+        ui.section_label(frame_filtros, T("orders_search")).pack(
+            side="left", padx=(10, 4), pady=8)
 
-        self.entry_buscar = ctk.CTkEntry(frame_filtros, placeholder_text=T("orders_search_ph"),
-                                         width=200, fg_color="#252525", border_color=COLOR_BORDER,
-                                         text_color=COLOR_TEXT, corner_radius=8)
+        self.entry_buscar = ui.entry(frame_filtros, T("orders_search_ph"), width=200)
         self.entry_buscar.pack(side="left", pady=8)
         self.entry_buscar.bind("<KeyRelease>", self._on_buscar_tecla)
 
-        ctk.CTkLabel(frame_filtros, text=T("orders_status"), text_color=COLOR_SUB,
-                     font=ctk.CTkFont(size=12)).pack(side="left", padx=(12, 4))
+        ui.section_label(frame_filtros, T("orders_status")).pack(
+            side="left", padx=(12, 4))
 
-        self.combo_estado = ctk.CTkOptionMenu(
-            frame_filtros, values=[T("orders_all")] + ESTADOS,
-            fg_color="#252525", button_color=COLOR_BORDER,
-            button_hover_color=COLOR_HOVER, text_color=COLOR_TEXT,
-            dropdown_fg_color=COLOR_CARD, width=140, height=32,
+        self.combo_estado = ui.option_menu(
+            frame_filtros, values=[T("orders_all")] + ESTADOS, width=140,
             command=lambda _: self._filtrar()
         )
         self.combo_estado.pack(side="left", pady=8, padx=4)
 
         # ── Layout principal: tabla + formulario ──
         frame_main = ctk.CTkFrame(self, fg_color="transparent")
-        frame_main.pack(fill="both", expand=True, padx=28, pady=(0, 20))
+        frame_main.pack(fill="both", expand=True, padx=th.PAD_PAGE, pady=(0, 20))
         frame_main.columnconfigure(0, weight=3)
         frame_main.columnconfigure(1, weight=2)
         frame_main.rowconfigure(0, weight=1)
 
         # ── Tabla de pedidos ──
-        frame_tabla = ctk.CTkFrame(frame_main, fg_color=COLOR_CARD, corner_radius=14,
-                                   border_width=1, border_color=COLOR_BORDER)
-        frame_tabla.grid(row=0, column=0, padx=(0, 8), sticky="nsew")
+        frame_tabla = ctk.CTkFrame(frame_main, fg_color="transparent")
+        frame_tabla.grid(row=0, column=0, padx=(0, th.GAP), sticky="nsew")
 
         cols = [T("orders_col_id"), T("orders_col_date"), T("orders_col_client"),
-                T("orders_col_desc"), T("orders_col_sale"), T("orders_col_profit"), T("orders_col_status")]
-        # Encabezado de la tabla
-        frame_col_header = ctk.CTkFrame(frame_tabla, fg_color="#252525", corner_radius=0)
-        frame_col_header.pack(fill="x", padx=0)
-        pesos = [1, 2, 3, 4, 2, 2, 2]
-        for col, peso in zip(cols, pesos):
-            ctk.CTkLabel(frame_col_header, text=col, text_color=COLOR_SUB,
-                         font=ctk.CTkFont(size=11, weight="bold"),
-                         anchor="w").pack(side="left", padx=8, pady=6, expand=True, fill="x")
+                T("orders_col_desc"), T("orders_col_sale"), T("orders_col_profit"),
+                T("orders_col_status")]
 
-        # ── Paginación (se empaqueta antes del scroll para quedar abajo) ──
+        # ── Paginación (se empaqueta antes de la tabla para quedar abajo) ──
         frame_pag = ctk.CTkFrame(frame_tabla, fg_color="transparent")
-        frame_pag.pack(side="bottom", fill="x", padx=10, pady=(4, 8))
+        frame_pag.pack(side="bottom", fill="x", pady=(th.GAP, 0))
 
-        self.btn_anterior = ctk.CTkButton(
-            frame_pag, text=T("orders_prev"), width=100, height=30,
-            fg_color=COLOR_CARD, hover_color=COLOR_HOVER,
-            text_color=COLOR_TEXT, corner_radius=8,
-            font=ctk.CTkFont(size=11),
-            command=lambda: self._cambiar_pagina(-1))
+        self.btn_anterior = ui.secondary_button(
+            frame_pag, T("orders_prev"), lambda: self._cambiar_pagina(-1),
+            width=100, height=30)
         self.btn_anterior.pack(side="left")
 
-        self.lbl_pagina = ctk.CTkLabel(frame_pag, text="", text_color=COLOR_SUB,
-                                       font=ctk.CTkFont(size=11))
+        self.lbl_pagina = ctk.CTkLabel(frame_pag, text="", text_color=th.SUB,
+                                       font=th.fuente(th.FONT_LABEL))
         self.lbl_pagina.pack(side="left", expand=True)
 
-        self.btn_siguiente = ctk.CTkButton(
-            frame_pag, text=T("orders_next"), width=100, height=30,
-            fg_color=COLOR_CARD, hover_color=COLOR_HOVER,
-            text_color=COLOR_TEXT, corner_radius=8,
-            font=ctk.CTkFont(size=11),
-            command=lambda: self._cambiar_pagina(1))
+        self.btn_siguiente = ui.secondary_button(
+            frame_pag, T("orders_next"), lambda: self._cambiar_pagina(1),
+            width=100, height=30)
         self.btn_siguiente.pack(side="right")
 
-        self.frame_tabla_scroll = ctk.CTkScrollableFrame(frame_tabla, fg_color="transparent")
-        self.frame_tabla_scroll.pack(fill="both", expand=True)
+        self.tabla = ui.DataTable(frame_tabla, columnas=cols, pesos=[1, 2, 3, 4, 2, 2, 2],
+                                  alinear=["w", "w", "w", "w", "e", "e", "w"],
+                                  on_select=lambda p: self._seleccionar_pedido(p["id"]))
+        self.frame_tabla_scroll = self.tabla.scroll
+        self.tabla.pack(fill="both", expand=True)
 
         # ── Formulario de pedido ──
-        self.frame_form = ctk.CTkScrollableFrame(frame_main, fg_color=COLOR_CARD,
-                                                  corner_radius=14, border_width=1,
-                                                  border_color=COLOR_BORDER)
+        self.frame_form = ui.scrollable(frame_main, fg_color=th.CARD,
+                                        corner_radius=th.RADIUS_CARD,
+                                        border_width=1, border_color=th.BORDER)
         self.frame_form.grid(row=0, column=1, sticky="nsew")
 
         self._construir_formulario(self.frame_form)
+
+    def _celda(self, parent, fila, columna, etiqueta, colspan=1):
+        """Crea la celda de un campo del formulario y devuelve su contenedor."""
+        celda = ctk.CTkFrame(parent, fg_color="transparent")
+        if colspan > 1:
+            padx = 0
+        elif columna == 0:
+            padx = (0, th.GAP // 2)
+        else:
+            padx = (th.GAP // 2, 0)
+        celda.grid(row=fila, column=columna, columnspan=colspan, sticky="ew",
+                   padx=padx, pady=(0, th.GAP))
+        ui.section_label(celda, etiqueta).pack(anchor="w", pady=(0, 2))
+        return celda
 
     def _construir_formulario(self, parent):
         """Construye el formulario de entrada de pedidos."""
         # Encabezado del formulario
         frame_form_head = ctk.CTkFrame(parent, fg_color="transparent")
-        frame_form_head.pack(fill="x", padx=14, pady=(13, 1))
+        frame_form_head.pack(fill="x", padx=14, pady=(14, 8))
 
-        ctk.CTkLabel(frame_form_head, text=T("orders_form_title"),
-                     font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"),
-                     text_color=COLOR_TEXT).pack(side="left")
+        ui.section_title(frame_form_head, T("orders_form_title")).pack(side="left")
 
-        ctk.CTkButton(frame_form_head, text=T("orders_load_catalog"),
-                      fg_color=COLOR_CARD, hover_color=COLOR_HOVER,
-                      text_color=COLOR_ACCENT, border_width=1, border_color=COLOR_BORDER,
-                      width=140, height=28, font=ctk.CTkFont(size=11),
-                      command=self._abrir_modal_catalogo).pack(side="right")
+        ui.secondary_button(frame_form_head, T("orders_load_catalog"),
+                            self._abrir_modal_catalogo, width=150,
+                            height=th.H_BTN_SM).pack(side="right")
 
-        def lbl(t): ctk.CTkLabel(parent, text=t, text_color=COLOR_SUB,
-                                  font=ctk.CTkFont(size=11), anchor="w").pack(
-                                      anchor="w", padx=14, pady=(8, 2))
-        def ent(ph=""):
-            e = ctk.CTkEntry(parent, placeholder_text=ph, fg_color="#252525",
-                             border_color=COLOR_BORDER, text_color=COLOR_TEXT,
-                             corner_radius=8, height=34)
-            e.pack(fill="x", padx=14)
-            return e
+        grid_form = ctk.CTkFrame(parent, fg_color="transparent")
+        grid_form.pack(fill="both", expand=True, padx=14, pady=(0, 14))
+        grid_form.grid_columnconfigure(0, weight=1, uniform="form")
+        grid_form.grid_columnconfigure(1, weight=1, uniform="form")
 
-        lbl(T("orders_date")); self.ent_fecha = ent("YYYY-MM-DD")
-        lbl(T("orders_client")); self._cargar_combo_clientes(parent)
-        lbl(T("orders_desc")); self.ent_desc = ent(T("orders_desc_ph"))
-        lbl(T("orders_filament")); self._cargar_combo_filamentos(parent)
-        lbl(T("orders_grams")); self.ent_gramos = ent("0")
+        # ── Datos ──
+        ui.section_title(grid_form, T("orders_section_data")).grid(
+            row=0, column=0, columnspan=2, sticky="w", pady=(0, 6))
+
+        celda = self._celda(grid_form, 1, 0, T("orders_date"))
+        self.ent_fecha = ui.entry(celda, "YYYY-MM-DD")
+        self.ent_fecha.pack(fill="x")
+
+        celda = self._celda(grid_form, 1, 1, T("orders_client"))
+        self._cargar_combo_clientes(celda)
+
+        celda = self._celda(grid_form, 2, 0, T("orders_desc"), colspan=2)
+        self.ent_desc = ui.entry(celda, T("orders_desc_ph"))
+        self.ent_desc.pack(fill="x")
+
+        celda = self._celda(grid_form, 3, 0, T("orders_filament"))
+        self._cargar_combo_filamentos(celda)
+
+        celda = self._celda(grid_form, 3, 1, T("orders_state"))
+        self.combo_estado_form = ui.option_menu(celda, values=ESTADOS)
+        self.combo_estado_form.pack(fill="x")
+
+        celda = self._celda(grid_form, 4, 0, T("orders_notes"), colspan=2)
+        self.ent_notas = ui.entry(celda, T("orders_notes_ph"))
+        self.ent_notas.pack(fill="x")
+
+        # ── Costos ──
+        ui.section_title(grid_form, T("orders_section_costs")).grid(
+            row=5, column=0, columnspan=2, sticky="w", pady=(4, 6))
+
+        celda = self._celda(grid_form, 6, 0, T("orders_grams"))
+        self.ent_gramos = ui.entry(celda, "0")
+        self.ent_gramos.pack(fill="x")
         self.ent_gramos.bind("<KeyRelease>", lambda e: self._calcular_costo())
-        lbl(T("orders_hours")); self.ent_horas = ent("0")
+
+        celda = self._celda(grid_form, 6, 1, T("orders_hours"))
+        self.ent_horas = ui.entry(celda, "0")
+        self.ent_horas.pack(fill="x")
         self.ent_horas.bind("<KeyRelease>", lambda e: self._calcular_costo())
-        lbl(T("orders_material_cost")); self.ent_costo_mat = ent("0.00")
-        lbl(T("orders_time_cost")); self.ent_costo_tiempo = ent("0.00")
-        lbl(T("orders_shipping")); self.ent_envio = ent("0.00")
-        lbl(T("orders_sale_price")); self.ent_venta = ent("0.00")
+
+        celda = self._celda(grid_form, 7, 0, T("orders_material_cost"))
+        self.ent_costo_mat = ui.entry(celda, "0.00")
+        self.ent_costo_mat.pack(fill="x")
+
+        celda = self._celda(grid_form, 7, 1, T("orders_time_cost"))
+        self.ent_costo_tiempo = ui.entry(celda, "0.00")
+        self.ent_costo_tiempo.pack(fill="x")
+
+        celda = self._celda(grid_form, 8, 0, T("orders_shipping"))
+        self.ent_envio = ui.entry(celda, "0.00")
+        self.ent_envio.pack(fill="x")
+
+        # ── Entrega ──
+        ui.section_title(grid_form, T("orders_section_delivery")).grid(
+            row=9, column=0, columnspan=2, sticky="w", pady=(4, 6))
+
+        celda = self._celda(grid_form, 10, 0, T("orders_sale_price"))
+        self.ent_venta = ui.entry(celda, "0.00")
+        self.ent_venta.pack(fill="x")
         self.ent_venta.bind("<KeyRelease>", lambda e: self._verificar_margen())
-        lbl(T("orders_delivery")); self.ent_entrega = ent("YYYY-MM-DD")
-        lbl(T("orders_state"))
-        self.combo_estado_form = ctk.CTkOptionMenu(
-            parent, values=ESTADOS,
-            fg_color="#252525", button_color=COLOR_BORDER,
-            text_color=COLOR_TEXT, dropdown_fg_color=COLOR_CARD,
-            corner_radius=8, height=34
-        )
-        self.combo_estado_form.pack(fill="x", padx=14)
-        lbl(T("orders_notes")); self.ent_notas = ent(T("orders_notes_ph"))
+
+        celda = self._celda(grid_form, 10, 1, T("orders_delivery"))
+        self.ent_entrega = ui.entry(celda, "YYYY-MM-DD")
+        self.ent_entrega.pack(fill="x")
 
         # Alerta de margen
         self.lbl_margen_alerta = ctk.CTkLabel(
-            parent, text="", text_color=COLOR_RED,
-            font=ctk.CTkFont(size=11)
+            grid_form, text="", text_color=th.RED, anchor="w",
+            font=th.fuente(th.FONT_LABEL)
         )
-        self.lbl_margen_alerta.pack(anchor="w", padx=14)
+        self.lbl_margen_alerta.grid(row=11, column=0, columnspan=2, sticky="w",
+                                    pady=(0, th.GAP))
 
-        ctk.CTkFrame(parent, height=1, fg_color=COLOR_BORDER).pack(fill="x", padx=14, pady=10)
+        ui.divider(grid_form).grid(row=12, column=0, columnspan=2, sticky="ew",
+                                   pady=(2, 10))
 
         # Botones de acción
-        ctk.CTkButton(parent, text=T("orders_save"),
-                      fg_color=COLOR_ACCENT, hover_color="#00CC7A",
-                      text_color="#000000",
-                      font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
-                      height=40, corner_radius=10,
-                      command=self._guardar_pedido).pack(fill="x", padx=14, pady=(0, 6))
+        ui.primary_button(grid_form, T("orders_save"), self._guardar_pedido).grid(
+            row=13, column=0, columnspan=2, sticky="ew", pady=(0, 6))
 
-        ctk.CTkButton(parent, text=T("orders_delete"),
-                      fg_color="#2D0000", hover_color="#3D0000",
-                      text_color=COLOR_RED, height=34, corner_radius=10,
-                      command=self._eliminar_pedido).pack(fill="x", padx=14, pady=(0, 6))
+        ui.danger_button(grid_form, T("orders_delete"), self._eliminar_pedido).grid(
+            row=14, column=0, columnspan=2, sticky="ew", pady=(0, 6))
 
-        ctk.CTkButton(parent, text=T("orders_invoice"),
-                      fg_color=COLOR_CARD, hover_color=COLOR_HOVER,
-                      text_color=COLOR_TEXT, height=34, corner_radius=10,
-                      command=self._generar_factura).pack(fill="x", padx=14, pady=(0, 14))
+        ui.secondary_button(grid_form, T("orders_invoice"), self._generar_factura).grid(
+            row=15, column=0, columnspan=2, sticky="ew")
 
     def _cargar_combo_clientes(self, parent):
         """Carga el dropdown de clientes."""
         self._clientes_data = mapa_por_etiqueta(
             db_manager.obtener_clientes(), lambda c: c["nombre"])
         valores = [T("orders_no_client")] + list(self._clientes_data.keys())
-        self.combo_cliente = ctk.CTkOptionMenu(
-            parent, values=valores,
-            fg_color="#252525", button_color=COLOR_BORDER,
-            text_color=COLOR_TEXT, dropdown_fg_color=COLOR_CARD,
-            corner_radius=8, height=34
-        )
-        self.combo_cliente.pack(fill="x", padx=14)
+        self.combo_cliente = ui.option_menu(parent, values=valores)
+        self.combo_cliente.pack(fill="x")
 
     def _cargar_combo_filamentos(self, parent):
         """Carga el dropdown de filamentos."""
@@ -282,14 +284,11 @@ class OrdersView(ctk.CTkFrame):
             db_manager.obtener_filamentos(),
             lambda f: f"{f['nombre']} ({f['material']})")
         valores = [T("orders_no_filament")] + list(self._filamentos_data.keys())
-        self.combo_filamento_form = ctk.CTkOptionMenu(
+        self.combo_filamento_form = ui.option_menu(
             parent, values=valores,
-            fg_color="#252525", button_color=COLOR_BORDER,
-            text_color=COLOR_TEXT, dropdown_fg_color=COLOR_CARD,
-            corner_radius=8, height=34,
             command=lambda _: self._calcular_costo()
         )
-        self.combo_filamento_form.pack(fill="x", padx=14)
+        self.combo_filamento_form.pack(fill="x")
 
     # ──────────────── FILTRADO Y PAGINACIÓN ────────────────
 
@@ -352,41 +351,35 @@ class OrdersView(ctk.CTkFrame):
         self._aplicar_filtros()
 
     def _renderizar_filas(self, pedidos):
-        """Renderiza las filas de la página actual en el scroll frame."""
-        firma = tuple((p["id"], p.get("fecha"), p.get("precio_venta"), p.get("ganancia"), p.get("estado")) for p in pedidos)
+        """Renderiza las filas de la página actual en la tabla."""
+        firma = tuple(
+            (p["id"], p.get("fecha"), p.get("cliente_nombre"), p.get("descripcion"),
+             p.get("precio_venta"), p.get("ganancia"), p.get("estado"))
+            for p in pedidos
+        )
         if firma == getattr(self, "_firma_tabla_pedidos", None):
             return
         self._firma_tabla_pedidos = firma
 
-        for w in self.frame_tabla_scroll.winfo_children():
-            w.destroy()
-
         if not pedidos:
-            ctk.CTkLabel(self.frame_tabla_scroll, text=T("orders_no_results"),
-                         text_color=COLOR_SUB, font=ctk.CTkFont(size=12),
-                         justify="center").pack(pady=40)
+            self.tabla.mostrar_vacio(T("orders_no_results"), icono="📦",
+                                     hint=T("orders_empty_hint"))
             return
 
-        for i, p in enumerate(pedidos):
-            row = ctk.CTkFrame(self.frame_tabla_scroll,
-                               fg_color="#252525" if i % 2 == 0 else COLOR_CARD,
-                               corner_radius=0)
-            row.pack(fill="x")
-            row.bind("<Button-1>", lambda e, pid=p["id"]: self._seleccionar_pedido(pid))
-            datos = [
+        celdas = [
+            [
                 str(p["id"]),
                 p.get("fecha", ""),
                 (p.get("cliente_nombre") or "—")[:18],
                 (p.get("descripcion") or "—")[:22],
                 f"${p.get('precio_venta', 0):.2f}",
                 f"${p.get('ganancia', 0):.2f}",
-                p.get("estado", ""),
+                (p.get("estado", ""), th.ESTADO_COLORES.get(
+                    (p.get("estado") or "").strip().lower(), th.SUB)),
             ]
-            for d in datos:
-                lbl = ctk.CTkLabel(row, text=d, text_color=COLOR_TEXT,
-                                   font=ctk.CTkFont(size=11), anchor="w")
-                lbl.pack(side="left", padx=8, pady=5, expand=True, fill="x")
-                lbl.bind("<Button-1>", lambda e, pid=p["id"]: self._seleccionar_pedido(pid))
+            for p in pedidos
+        ]
+        self.tabla.set_rows(pedidos, celdas, firma=firma)
 
     # ──────────────── SELECCIÓN Y FORMULARIO ────────────────
 
@@ -396,6 +389,7 @@ class OrdersView(ctk.CTkFrame):
         if not p:
             return
         self._pedido_editando = pedido_id
+        self._cotizacion_id = None
         self.lbl_margen_alerta.configure(text="")
 
         def set_entry(e, val):
@@ -436,6 +430,7 @@ class OrdersView(ctk.CTkFrame):
     def _nuevo_pedido(self):
         """Limpia el formulario para ingresar un nuevo pedido."""
         self._pedido_editando = None
+        self._cotizacion_id = None
         for e in [self.ent_fecha, self.ent_desc, self.ent_gramos, self.ent_horas,
                   self.ent_costo_mat, self.ent_costo_tiempo, self.ent_envio,
                   self.ent_venta, self.ent_entrega, self.ent_notas]:
@@ -542,7 +537,7 @@ class OrdersView(ctk.CTkFrame):
             if self._pedido_editando:
                 db_manager.actualizar_pedido(self._pedido_editando, datos)
             else:
-                db_manager.agregar_pedido(datos)
+                db_manager.agregar_pedido(datos, cotizacion_id=self._cotizacion_id)
             self._nuevo_pedido()
             self._cargar_pedidos()
         except Exception as ex:
@@ -578,6 +573,7 @@ class OrdersView(ctk.CTkFrame):
 
             def _worker():
                 try:
+                    from utils.pdf_invoice import generar_factura_pdf
                     generar_factura_pdf(pedido, config, ruta)
                     db_manager.marcar_factura_generada(pedido_id)
                     self.after(0, lambda: messagebox.showinfo(
@@ -595,8 +591,9 @@ class OrdersView(ctk.CTkFrame):
             threading.Thread(target=_worker, daemon=True).start()
 
     def prellenar(self, datos: dict):
-        """Pre-llena el formulario con datos de la calculadora."""
+        """Pre-llena el formulario con datos de la calculadora o cotización."""
         self._nuevo_pedido()
+        self._cotizacion_id = datos.get("cotizacion_id")
         if datos.get("gramos"):
             self.ent_gramos.insert(0, str(datos["gramos"]))
         if datos.get("horas"):
@@ -607,6 +604,17 @@ class OrdersView(ctk.CTkFrame):
             self.ent_costo_tiempo.insert(0, f"{datos['costo_tiempo']:.2f}")
         if datos.get("precio_sugerido"):
             self.ent_venta.insert(0, f"{datos['precio_sugerido']:.2f}")
+        if datos.get("descripcion"):
+            self.ent_desc.insert(0, datos["descripcion"])
+        if datos.get("notas"):
+            self.ent_notas.insert(0, datos["notas"])
+
+        cliente_id = datos.get("cliente_id")
+        if cliente_id:
+            for etiqueta, info in self._clientes_data.items():
+                if info["id"] == cliente_id:
+                    self.combo_cliente.set(etiqueta)
+                    break
 
         # La calculadora envía el filamento, pero antes se ignoraba: el pedido
         # se guardaba sin filamento y el inventario NO se descontaba.
@@ -630,7 +638,7 @@ class OrdersView(ctk.CTkFrame):
         modal.resizable(False, False)
         modal.grab_set()
         modal.focus_force()
-        modal.configure(fg_color=COLOR_BG)
+        modal.configure(fg_color=th.BG)
 
         modal.update_idletasks()
         x = modal.winfo_screenwidth() // 2 - 200
@@ -638,9 +646,9 @@ class OrdersView(ctk.CTkFrame):
         modal.geometry(f"+{x}+{y}")
 
         ctk.CTkLabel(modal, text=T("orders_catalog_title"),
-                     font=ctk.CTkFont(size=16, weight="bold"), text_color=COLOR_TEXT).pack(pady=16)
+                     font=th.fuente(16, True), text_color=th.TEXT).pack(pady=16)
 
-        scroll = ctk.CTkScrollableFrame(modal, fg_color="transparent")
+        scroll = ui.scrollable(modal)
         scroll.pack(fill="both", expand=True, padx=14, pady=(0, 14))
 
         def seleccionar(p):
@@ -670,7 +678,7 @@ class OrdersView(ctk.CTkFrame):
             modal.destroy()
 
         for p in productos:
-            card = ctk.CTkFrame(scroll, fg_color=COLOR_CARD, corner_radius=8, cursor="hand2")
+            card = ui.card(scroll, corner_radius=th.RADIUS_INPUT, cursor="hand2")
             card.pack(fill="x", pady=3)
             card.bind("<Button-1>", lambda e, prod=p: seleccionar(prod))
 
@@ -678,10 +686,14 @@ class OrdersView(ctk.CTkFrame):
             f_top.pack(fill="x", padx=10, pady=(8, 2))
             f_top.bind("<Button-1>", lambda e, prod=p: seleccionar(prod))
 
-            ctk.CTkLabel(f_top, text=p["nombre"], font=ctk.CTkFont(size=12, weight="bold"), text_color=COLOR_TEXT).pack(side="left")
-            ctk.CTkLabel(f_top, text=f"${p['precio_sugerido']:.2f}", font=ctk.CTkFont(size=12, weight="bold"), text_color=COLOR_ACCENT).pack(side="right")
+            ctk.CTkLabel(f_top, text=p["nombre"], font=th.fuente(12, True),
+                         text_color=th.TEXT).pack(side="left")
+            ctk.CTkLabel(f_top, text=f"${p['precio_sugerido']:.2f}",
+                         font=th.fuente(12, True),
+                         text_color=th.ACCENT).pack(side="right")
 
-            ctk.CTkLabel(card, text=p.get("descripcion", ""), font=ctk.CTkFont(size=10), text_color=COLOR_SUB).pack(anchor="w", padx=10, pady=(0, 8))
+            ctk.CTkLabel(card, text=p.get("descripcion", ""), font=th.fuente(10),
+                         text_color=th.SUB).pack(anchor="w", padx=10, pady=(0, 8))
 
             # Asegurar que el click en los labels también dispare la selección
             for child in card.winfo_children():

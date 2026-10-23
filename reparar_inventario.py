@@ -18,20 +18,17 @@ Uso:
     python reparar_inventario.py --dry-run  # solo muestra lo que haría
     python reparar_inventario.py --yes      # no pregunta (para scripts)
 
-La base de datos usada es la misma que la app: data/printmoney.db junto al
-ejecutable, o data/printmoney.db en la raíz del proyecto.
+La base de datos usada es la misma que la app: %APPDATA%\\PrintMoney\\data\\
+printmoney.db (o la carpeta indicada por PRINTMONEY_DATA_DIR).
 """
 import argparse
 import os
 import sqlite3
 import sys
 
-if getattr(sys, 'frozen', False):
-    BASE_DIR = os.path.dirname(sys.executable)
-else:
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+from utils import paths
 
-DB_PATH = os.path.join(BASE_DIR, "data", "printmoney.db")
+DB_PATH = paths.DB_PATH
 
 
 def main():
@@ -39,6 +36,12 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="No escribe nada")
     parser.add_argument("--yes", action="store_true", help="No pide confirmación")
     args = parser.parse_args()
+
+    try:
+        paths.migrar_datos_legados()
+    except Exception as exc:
+        print(f"No se pudieron migrar los datos: {exc}")
+        return 1
 
     if not os.path.exists(DB_PATH):
         print(f"No se encuentra la base de datos: {DB_PATH}")

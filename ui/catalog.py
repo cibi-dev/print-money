@@ -6,21 +6,15 @@ from tkinter import messagebox
 import db_manager
 from utils.i18n import T
 from utils.labels import mapa_por_etiqueta
+from ui import theme as th
+from ui import components as ui
 
-COLOR_BG     = "#0F0F0F"
-COLOR_CARD   = "#1E1E1E"
-COLOR_ACCENT = "#00FF9D"
-COLOR_TEXT   = "#FFFFFF"
-COLOR_SUB    = "#888888"
-COLOR_RED    = "#FF4C4C"
-COLOR_BORDER = "#2D2D2D"
-COLOR_HOVER  = "#2A2A2A"
 
 class CatalogView(ctk.CTkFrame):
     """Vista de catálogo de productos frecuentes."""
 
     def __init__(self, master, app, **kwargs):
-        super().__init__(master, fg_color=COLOR_BG, corner_radius=0, **kwargs)
+        super().__init__(master, fg_color=th.BG, corner_radius=0, **kwargs)
         self.app = app
         self._producto_editando = None
         self._productos_cache = []
@@ -30,57 +24,43 @@ class CatalogView(ctk.CTkFrame):
         self._cargar_catalogo()
 
     def _construir_ui(self):
-        frame_header = ctk.CTkFrame(self, fg_color="transparent")
-        frame_header.pack(fill="x", padx=28, pady=(22, 0))
-        ctk.CTkLabel(frame_header, text=T("catalog_title"),
-                     font=ctk.CTkFont(family="Segoe UI", size=26, weight="bold"),
-                     text_color=COLOR_TEXT).pack(side="left")
-        ctk.CTkButton(frame_header, text=T("catalog_new"),
-                      fg_color=COLOR_ACCENT, hover_color="#00CC7A",
-                      text_color="#000000", corner_radius=10,
-                      font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-                      command=self._nuevo_producto, width=160, height=36).pack(side="right")
+        _, zona_acciones = ui.page_header(self, T("catalog_title"))
+        ui.primary_button(zona_acciones, T("catalog_new"),
+                          self._nuevo_producto, width=160).pack(side="right")
 
         frame_main = ctk.CTkFrame(self, fg_color="transparent")
-        frame_main.pack(fill="both", expand=True, padx=28, pady=14)
+        frame_main.pack(fill="both", expand=True, padx=th.PAD_PAGE, pady=14)
         frame_main.columnconfigure(0, weight=3)
         frame_main.columnconfigure(1, weight=2)
         frame_main.rowconfigure(0, weight=1)
 
-        frame_izq = ctk.CTkFrame(frame_main, fg_color=COLOR_CARD, corner_radius=14,
-                                 border_width=1, border_color=COLOR_BORDER)
-        frame_izq.grid(row=0, column=0, padx=(0, 8), sticky="nsew")
+        frame_izq = ui.card(frame_main)
+        frame_izq.grid(row=0, column=0, padx=(0, th.GAP), sticky="nsew")
 
-        ctk.CTkLabel(frame_izq, text=T("catalog_saved"),
-                     font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
-                     text_color=COLOR_TEXT).pack(anchor="w", padx=16, pady=(14, 6))
+        ui.section_title(frame_izq, T("catalog_saved")).pack(
+            anchor="w", padx=16, pady=(14, 6))
 
         self._frame_lista_padre = ctk.CTkFrame(frame_izq, fg_color="transparent")
         self._frame_lista_padre.pack(fill="both", expand=True, padx=6, pady=(0, 8))
 
-        self._scroll_frame = ctk.CTkScrollableFrame(self._frame_lista_padre,
-                                                     fg_color="transparent")
+        self._scroll_frame = ui.scrollable(self._frame_lista_padre)
         self._scroll_frame.pack(fill="both", expand=True)
 
-        self.frame_form = ctk.CTkScrollableFrame(frame_main, fg_color=COLOR_CARD,
-                                                 corner_radius=14, border_width=1,
-                                                 border_color=COLOR_BORDER)
+        self.frame_form = ui.scrollable(frame_main, fg_color=th.CARD,
+                                        corner_radius=th.RADIUS_CARD,
+                                        border_width=1, border_color=th.BORDER)
         self.frame_form.grid(row=0, column=1, sticky="nsew")
         self._construir_formulario(self.frame_form)
 
     def _construir_formulario(self, parent):
-        ctk.CTkLabel(parent, text=T("catalog_form_title"),
-                     font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
-                     text_color=COLOR_TEXT).pack(anchor="w", padx=14, pady=(14, 4))
+        ui.section_title(parent, T("catalog_form_title")).pack(
+            anchor="w", padx=14, pady=(14, 4))
 
         def lbl(t):
-            ctk.CTkLabel(parent, text=t, text_color=COLOR_SUB,
-                         font=ctk.CTkFont(size=11)).pack(anchor="w", padx=14, pady=(8, 2))
+            ui.section_label(parent, t).pack(anchor="w", padx=14, pady=(8, 2))
 
         def ent(ph=""):
-            e = ctk.CTkEntry(parent, placeholder_text=ph, fg_color="#252525",
-                             border_color=COLOR_BORDER, text_color=COLOR_TEXT,
-                             corner_radius=8, height=34)
+            e = ui.entry(parent, ph)
             e.pack(fill="x", padx=14)
             return e
 
@@ -93,25 +73,17 @@ class CatalogView(ctk.CTkFrame):
             lambda f: f"{f['nombre']} ({f.get('material', 'PLA')})"
         )
         valores = [T("catalog_no_filament")] + list(self._filamentos_data.keys())
-        self.combo_filamento = ctk.CTkOptionMenu(
-            parent, values=valores,
-            fg_color="#252525", button_color=COLOR_BORDER,
-            text_color=COLOR_TEXT, dropdown_fg_color=COLOR_CARD,
-            corner_radius=8, height=34)
+        self.combo_filamento = ui.option_menu(parent, valores)
         self.combo_filamento.pack(fill="x", padx=14)
 
         lbl(T("catalog_grams"));   self.ent_gramos = ent("0")
         lbl(T("catalog_hours")); self.ent_horas  = ent("0")
         lbl(T("catalog_price"));    self.ent_precio = ent("0.00")
 
-        ctk.CTkFrame(parent, height=1, fg_color=COLOR_BORDER).pack(fill="x", padx=14, pady=12)
+        ui.divider(parent).pack(fill="x", padx=14, pady=12)
 
-        ctk.CTkButton(parent, text=T("catalog_save"),
-                      fg_color=COLOR_ACCENT, hover_color="#00CC7A",
-                      text_color="#000000",
-                      font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
-                      height=40, corner_radius=10,
-                      command=self._guardar_producto).pack(fill="x", padx=14, pady=(0, 6))
+        ui.primary_button(parent, T("catalog_save"), self._guardar_producto,
+                          height=th.H_BTN_LG).pack(fill="x", padx=14, pady=(0, 6))
 
     def _cargar_catalogo(self):
         try:
@@ -134,10 +106,11 @@ class CatalogView(ctk.CTkFrame):
             self._productos_cache = db_manager.obtener_catalogo()
 
             if not self._productos_cache:
-                ctk.CTkLabel(self._scroll_frame,
-                             text=T("catalog_empty"),
-                             text_color=COLOR_SUB, font=ctk.CTkFont(size=13),
-                             justify="center").pack(pady=40)
+                ui.empty_state(self._scroll_frame, icono="📖",
+                               titulo=T("catalog_saved"),
+                               hint=T("catalog_empty"),
+                               cta_texto=T("catalog_new"),
+                               cta_cmd=self._nuevo_producto)
                 return
 
             for p in self._productos_cache:
@@ -149,30 +122,29 @@ class CatalogView(ctk.CTkFrame):
     def _crear_card(self, p):
         pid = p["id"]
 
-        card = ctk.CTkFrame(self._scroll_frame, fg_color="#252525",
-                            corner_radius=12, border_width=1,
-                            border_color=COLOR_BORDER)
+        card = ui.card(self._scroll_frame, fg_color=th.SURFACE)
         card.pack(fill="x", pady=5, padx=4)
 
         row_top = ctk.CTkFrame(card, fg_color="transparent")
         row_top.pack(fill="x", padx=14, pady=(12, 0))
 
         ctk.CTkLabel(row_top, text=p["nombre"],
-                     font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
-                     text_color=COLOR_TEXT, anchor="w").pack(side="left")
+                     font=th.fuente(14, True),
+                     text_color=th.TEXT, anchor="w").pack(side="left")
 
-        precio_frame = ctk.CTkFrame(row_top, fg_color="#003D26", corner_radius=6)
+        precio_frame = ctk.CTkFrame(row_top, fg_color=th.ACCENT_DIM,
+                                    corner_radius=th.RADIUS_SM)
         precio_frame.pack(side="right")
         ctk.CTkLabel(precio_frame, text=f"${p.get('precio_sugerido', 0):.2f}",
-                     font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-                     text_color=COLOR_ACCENT).pack(padx=8, pady=2)
+                     font=th.fuente(th.FONT_BODY, True),
+                     text_color=th.ACCENT).pack(padx=8, pady=2)
 
         desc = p.get("descripcion", "") or ""
         if desc:
             ctk.CTkLabel(card, text=desc,
-                         font=ctk.CTkFont(size=12),
-                         text_color=COLOR_SUB, anchor="w",
-                         wraplength=350).pack(fill="x", padx=14, pady=(4, 0))
+                         font=th.fuente(th.FONT_BODY),
+                         text_color=th.SUB, anchor="w",
+                         wraplength=380).pack(fill="x", padx=14, pady=(4, 0))
 
         detalles = []
         if p.get("filamento_nombre"):
@@ -184,25 +156,22 @@ class CatalogView(ctk.CTkFrame):
 
         if detalles:
             ctk.CTkLabel(card, text="   ".join(detalles),
-                         font=ctk.CTkFont(size=11),
-                         text_color="#666666", anchor="w").pack(fill="x", padx=14, pady=(4, 0))
+                         font=th.fuente(th.FONT_LABEL),
+                         text_color=th.SUB_DIM, anchor="w").pack(fill="x", padx=14, pady=(4, 0))
 
-        btn_frame = ctk.CTkFrame(card, fg_color="transparent")
-        btn_frame.pack(fill="x", padx=14, pady=(6, 12))
+        btn_frame = ctk.CTkFrame(card, fg_color="transparent", height=1)
 
-        btn_editar = ctk.CTkButton(
-            btn_frame, text=T("catalog_edit"), width=80, height=28,
-            fg_color=COLOR_BORDER, hover_color="#3A3A3A",
-            text_color=COLOR_TEXT, corner_radius=6,
-            font=ctk.CTkFont(size=11),
-            command=lambda: self._seleccionar_producto(pid))
+        btn_editar = ui.secondary_button(
+            btn_frame, T("catalog_edit"),
+            lambda: self._seleccionar_producto(pid),
+            width=80, height=28, font=th.fuente(11))
+        btn_editar.pack(side="left", padx=(0, 6))
 
-        btn_eliminar = ctk.CTkButton(
-            btn_frame, text=T("catalog_del"), width=90, height=28,
-            fg_color="#2D0000", hover_color="#3D0000",
-            text_color=COLOR_RED, corner_radius=6,
-            font=ctk.CTkFont(size=11),
-            command=lambda: self._eliminar_producto_directo(pid))
+        btn_eliminar = ui.danger_button(
+            btn_frame, T("catalog_del"),
+            lambda: self._eliminar_producto_directo(pid),
+            width=90, height=28, font=th.fuente(11))
+        btn_eliminar.pack(side="left")
 
         card._hover_visible = False
         card._leave_after_id = None
@@ -210,16 +179,14 @@ class CatalogView(ctk.CTkFrame):
         def _mostrar_botones():
             if not card._hover_visible:
                 card._hover_visible = True
-                btn_editar.pack(side="left", padx=(0, 6))
-                btn_eliminar.pack(side="left")
-                card.configure(fg_color="#2E2E2E", border_color=COLOR_ACCENT)
+                btn_frame.pack(fill="x", padx=14, pady=(6, 12))
+                card.configure(fg_color=th.SURFACE_HOVER, border_color=th.ACCENT)
 
         def _ocultar_botones():
             if card._hover_visible:
                 card._hover_visible = False
-                btn_editar.pack_forget()
-                btn_eliminar.pack_forget()
-                card.configure(fg_color="#252525", border_color=COLOR_BORDER)
+                btn_frame.pack_forget()
+                card.configure(fg_color=th.SURFACE, border_color=th.BORDER)
 
         def on_enter(e):
             if card._leave_after_id is not None:

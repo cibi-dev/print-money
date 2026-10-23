@@ -5,16 +5,8 @@ import customtkinter as ctk
 from tkinter import messagebox
 import db_manager
 from utils.i18n import T
-
-COLOR_BG     = "#0F0F0F"
-COLOR_CARD   = "#1E1E1E"
-COLOR_ACCENT = "#00FF9D"
-COLOR_TEXT   = "#FFFFFF"
-COLOR_SUB    = "#888888"
-COLOR_RED    = "#FF4C4C"
-COLOR_YELLOW = "#FFD166"
-COLOR_BORDER = "#2D2D2D"
-COLOR_HOVER  = "#2A2A2A"
+from ui import theme as th
+from ui import components as ui
 
 MATERIALES = ["PLA", "PETG", "ABS", "TPU", "ASA", "Nylon", "Resina", "Otro"]
 
@@ -23,7 +15,7 @@ class InventoryView(ctk.CTkFrame):
     """Vista de inventario con cards de filamento y formulario lateral."""
 
     def __init__(self, master, app, **kwargs):
-        super().__init__(master, fg_color=COLOR_BG, corner_radius=0, **kwargs)
+        super().__init__(master, fg_color=th.BG, corner_radius=0, **kwargs)
         self.app = app
         self._filamento_editando = None
         self._construir_ui()
@@ -32,82 +24,86 @@ class InventoryView(ctk.CTkFrame):
         self._cargar_filamentos()
 
     def _construir_ui(self):
-        frame_header = ctk.CTkFrame(self, fg_color="transparent")
-        frame_header.pack(fill="x", padx=28, pady=(22, 0))
-        ctk.CTkLabel(frame_header, text=T("inv_title"),
-                     font=ctk.CTkFont(family="Segoe UI", size=26, weight="bold"),
-                     text_color=COLOR_TEXT).pack(side="left")
-        ctk.CTkButton(frame_header, text=T("inv_new"),
-                      fg_color=COLOR_ACCENT, hover_color="#00CC7A",
-                      text_color="#000000", corner_radius=10,
-                      font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-                      command=self._nuevo_filamento, width=160, height=36).pack(side="right")
+        _, zona_acciones = ui.page_header(self, T("inv_title"))
+        ui.primary_button(zona_acciones, T("inv_new"),
+                          self._nuevo_filamento, width=160).pack(side="right")
 
         frame_main = ctk.CTkFrame(self, fg_color="transparent")
-        frame_main.pack(fill="both", expand=True, padx=28, pady=14)
+        frame_main.pack(fill="both", expand=True, padx=th.PAD_PAGE, pady=14)
         frame_main.columnconfigure(0, weight=3)
         frame_main.columnconfigure(1, weight=2)
         frame_main.rowconfigure(0, weight=1)
 
-        frame_izq = ctk.CTkFrame(frame_main, fg_color=COLOR_CARD, corner_radius=14,
-                                  border_width=1, border_color=COLOR_BORDER)
-        frame_izq.grid(row=0, column=0, padx=(0, 8), sticky="nsew")
+        frame_izq = ui.card(frame_main)
+        frame_izq.grid(row=0, column=0, padx=(0, th.GAP), sticky="nsew")
 
-        ctk.CTkLabel(frame_izq, text=T("inv_stock"),
-                     font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
-                     text_color=COLOR_TEXT).pack(anchor="w", padx=16, pady=(14, 6))
+        ui.section_title(frame_izq, T("inv_stock")).pack(
+            anchor="w", padx=16, pady=(14, 6))
 
-        self.frame_cards = ctk.CTkScrollableFrame(frame_izq, fg_color="transparent")
+        self.frame_cards = ui.scrollable(frame_izq)
         self.frame_cards.pack(fill="both", expand=True, padx=6, pady=(0, 8))
 
-        self.frame_form = ctk.CTkScrollableFrame(frame_main, fg_color=COLOR_CARD,
-                                                  corner_radius=14, border_width=1,
-                                                  border_color=COLOR_BORDER)
+        self.frame_form = ui.scrollable(frame_main, fg_color=th.CARD,
+                                        corner_radius=th.RADIUS_CARD,
+                                        border_width=1, border_color=th.BORDER)
         self.frame_form.grid(row=0, column=1, sticky="nsew")
         self._construir_formulario(self.frame_form)
 
     def _construir_formulario(self, parent):
-        ctk.CTkLabel(parent, text=T("inv_form_title"),
-                     font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
-                     text_color=COLOR_TEXT).pack(anchor="w", padx=14, pady=(14, 4))
+        ui.section_title(parent, T("inv_form_title")).pack(
+            anchor="w", padx=14, pady=(14, 6))
 
-        def lbl(t): ctk.CTkLabel(parent, text=t, text_color=COLOR_SUB,
-                                  font=ctk.CTkFont(size=11)).pack(anchor="w", padx=14, pady=(8, 2))
-        def ent(ph=""):
-            e = ctk.CTkEntry(parent, placeholder_text=ph, fg_color="#252525",
-                             border_color=COLOR_BORDER, text_color=COLOR_TEXT,
-                             corner_radius=8, height=34)
-            e.pack(fill="x", padx=14)
-            return e
+        grid = ctk.CTkFrame(parent, fg_color="transparent")
+        grid.pack(fill="x", padx=14)
+        grid.grid_columnconfigure(0, weight=1, uniform="inv")
+        grid.grid_columnconfigure(1, weight=1, uniform="inv")
 
-        lbl(T("inv_name")); self.ent_nombre = ent(T("inv_name_ph"))
-        lbl(T("inv_material"))
-        self.combo_material = ctk.CTkOptionMenu(
-            parent, values=MATERIALES,
-            fg_color="#252525", button_color=COLOR_BORDER,
-            text_color=COLOR_TEXT, dropdown_fg_color=COLOR_CARD,
-            corner_radius=8, height=34)
-        self.combo_material.pack(fill="x", padx=14)
-        lbl(T("inv_color")); self.ent_color = ent(T("inv_color_ph"))
-        lbl(T("inv_grams")); self.ent_gramos = ent("1000")
-        lbl(T("inv_price_kg")); self.ent_precio = ent("20.00")
-        lbl(T("inv_threshold")); self.ent_umbral = ent("100")
-        lbl(T("inv_supplier")); self.ent_proveedor = ent(T("inv_supplier_ph"))
-        lbl(T("inv_notes")); self.ent_notas = ent(T("inv_notes_ph"))
+        def celda(fila, col, texto, colspan=1):
+            caja = ctk.CTkFrame(grid, fg_color="transparent")
+            caja.grid(row=fila, column=col, columnspan=colspan, sticky="ew",
+                      padx=(0, th.GAP if col == 0 else 0), pady=(0, th.GAP))
+            ui.section_label(caja, texto).pack(anchor="w", pady=(0, 3))
+            return caja
 
-        ctk.CTkFrame(parent, height=1, fg_color=COLOR_BORDER).pack(fill="x", padx=14, pady=12)
+        caja = celda(0, 0, T("inv_name"))
+        self.ent_nombre = ui.entry(caja, T("inv_name_ph"))
+        self.ent_nombre.pack(fill="x")
 
-        ctk.CTkButton(parent, text=T("inv_save"),
-                      fg_color=COLOR_ACCENT, hover_color="#00CC7A",
-                      text_color="#000000",
-                      font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
-                      height=40, corner_radius=10,
-                      command=self._guardar_filamento).pack(fill="x", padx=14, pady=(0, 6))
+        caja = celda(0, 1, T("inv_material"))
+        self.combo_material = ui.option_menu(caja, MATERIALES)
+        self.combo_material.pack(fill="x")
 
-        ctk.CTkButton(parent, text=T("inv_delete"),
-                      fg_color="#2D0000", hover_color="#3D0000",
-                      text_color=COLOR_RED, height=34, corner_radius=10,
-                      command=self._eliminar_filamento).pack(fill="x", padx=14, pady=(0, 14))
+        caja = celda(1, 0, T("inv_color"))
+        self.ent_color = ui.entry(caja, T("inv_color_ph"))
+        self.ent_color.pack(fill="x")
+
+        caja = celda(1, 1, T("inv_grams"))
+        self.ent_gramos = ui.entry(caja, "1000")
+        self.ent_gramos.pack(fill="x")
+
+        caja = celda(2, 0, T("inv_price_kg"))
+        self.ent_precio = ui.entry(caja, "20.00")
+        self.ent_precio.pack(fill="x")
+
+        caja = celda(2, 1, T("inv_threshold"))
+        self.ent_umbral = ui.entry(caja, "100")
+        self.ent_umbral.pack(fill="x")
+
+        caja = celda(3, 0, T("inv_supplier"), colspan=2)
+        self.ent_proveedor = ui.entry(caja, T("inv_supplier_ph"))
+        self.ent_proveedor.pack(fill="x")
+
+        caja = celda(4, 0, T("inv_notes"), colspan=2)
+        self.ent_notas = ui.entry(caja, T("inv_notes_ph"))
+        self.ent_notas.pack(fill="x")
+
+        ui.divider(parent).pack(fill="x", padx=14, pady=12)
+
+        ui.primary_button(parent, T("inv_save"), self._guardar_filamento,
+                          height=th.H_BTN_LG).pack(fill="x", padx=14, pady=(0, 6))
+
+        ui.danger_button(parent, T("inv_delete"), self._eliminar_filamento).pack(
+            fill="x", padx=14, pady=(0, 14))
 
     def _cargar_filamentos(self):
         for w in self.frame_cards.winfo_children():
@@ -115,9 +111,11 @@ class InventoryView(ctk.CTkFrame):
         filamentos = db_manager.obtener_filamentos()
 
         if not filamentos:
-            ctk.CTkLabel(self.frame_cards, text=T("inv_empty"),
-                         text_color=COLOR_SUB, font=ctk.CTkFont(size=13),
-                         justify="center").pack(pady=40)
+            ui.empty_state(self.frame_cards, icono="🧵",
+                           titulo=T("inv_stock"),
+                           hint=T("inv_empty"),
+                           cta_texto=T("inv_new"),
+                           cta_cmd=self._nuevo_filamento)
             return
 
         for f in filamentos:
@@ -125,11 +123,10 @@ class InventoryView(ctk.CTkFrame):
 
     def _crear_card_filamento(self, f):
         bajo_umbral = f["gramos_restantes"] < f["umbral_bajo"]
-        borde = COLOR_RED if bajo_umbral else COLOR_BORDER
-        bg = "#2D0000" if bajo_umbral else "#252525"
 
-        card = ctk.CTkFrame(self.frame_cards, fg_color=bg, corner_radius=12,
-                            border_width=1, border_color=borde)
+        card = ui.card(self.frame_cards,
+                       fg_color=th.DANGER_BG if bajo_umbral else th.SURFACE,
+                       border_color=th.RED if bajo_umbral else th.BORDER)
         card.pack(fill="x", pady=4, padx=2)
         card.bind("<Button-1>", lambda e, fid=f["id"]: self._seleccionar_filamento(fid))
 
@@ -139,30 +136,30 @@ class InventoryView(ctk.CTkFrame):
 
         ctk.CTkLabel(frame_row,
                      text=f"{f['nombre']}  [{f['material']}]",
-                     font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
-                     text_color=COLOR_RED if bajo_umbral else COLOR_TEXT,
+                     font=th.fuente(13, True),
+                     text_color=th.RED if bajo_umbral else th.TEXT,
                      anchor="w").pack(side="left")
 
         ctk.CTkLabel(frame_row,
                      text=f"{f['gramos_restantes']:.0f} g",
-                     font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
-                     text_color=COLOR_RED if bajo_umbral else COLOR_ACCENT,
+                     font=th.fuente(13, True),
+                     text_color=th.RED if bajo_umbral else th.ACCENT,
                      anchor="e").pack(side="right")
 
         max_gramos = max(f["gramos_restantes"], f["umbral_bajo"], 1000)
         progreso = max(0, min(1, f["gramos_restantes"] / max_gramos))
         barra = ctk.CTkProgressBar(card, height=6, corner_radius=4,
-                                   progress_color=COLOR_RED if bajo_umbral else COLOR_ACCENT,
-                                   fg_color=COLOR_BORDER)
+                                   progress_color=th.RED if bajo_umbral else th.ACCENT,
+                                   fg_color=th.BORDER)
         barra.set(progreso)
         barra.pack(fill="x", padx=12, pady=(6, 4))
 
         if bajo_umbral:
             info = ctk.CTkLabel(card, text=T("inv_low_stock", threshold=f['umbral_bajo'], price=f['precio_por_kg']),
-                                font=ctk.CTkFont(size=10), text_color=COLOR_RED)
+                                font=th.fuente(10), text_color=th.RED)
         else:
             info = ctk.CTkLabel(card, text=f"Color: {f.get('color','—')}  ·  ${f['precio_por_kg']}/kg  ·  {T('inv_threshold')}: {f['umbral_bajo']}g",
-                                font=ctk.CTkFont(size=10), text_color=COLOR_SUB)
+                                font=th.fuente(10), text_color=th.SUB_DIM)
         info.pack(anchor="w", padx=12, pady=(0, 10))
 
     def _seleccionar_filamento(self, fid):

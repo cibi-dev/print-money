@@ -25,7 +25,13 @@ pip install -r requirements.txt
 python main.py
 ```
 
-The database `data/printmoney.db` is created automatically on first launch.
+On first launch, PrintMoney creates its data folder at `%APPDATA%\PrintMoney`
+(`config.json`, `printmoney.log`, `data/printmoney.db` and `data/backups/`).
+If that folder is not writable, it falls back to `%LOCALAPPDATA%\PrintMoney`
+and then to `PrintMoneyData` next to the executable. If an older portable
+install has `data/` and `config.json` next to `main.py` or the `.exe`, they
+are copied there on first run; the originals are left untouched. Set
+`PRINTMONEY_DATA_DIR` to force a specific folder.
 
 ---
 
@@ -36,15 +42,14 @@ PrintMoney/
 ├── main.py              # Entry point – main window & sidebar
 ├── db_manager.py        # SQLite database (schema + CRUD)
 ├── requirements.txt     # Python dependencies
-├── config.json          # Business configuration
+├── requirements-build.txt # PyInstaller
+├── build.ps1            # Windows executable build
 ├── assets/
-│   └── icons/           # UI icons (auto-generated on first run)
-├── data/
-│   ├── printmoney.db    # Database (created on launch)
-│   └── backups/         # Automatic daily backups
+│   └── icons/           # UI icons
 ├── ui/
 │   ├── dashboard.py     # Dashboard with KPIs and charts
 │   ├── orders.py        # Order management
+│   ├── quotes.py        # Quote history & conversion
 │   ├── expenses.py      # Expense tracking
 │   ├── inventory.py     # Filament inventory
 │   ├── clients.py       # Client management & CRM
@@ -54,8 +59,10 @@ PrintMoney/
 │   ├── calculator.py    # Floating cost calculator
 │   └── settings.py      # General settings
 └── utils/
+    ├── paths.py         # %APPDATA% paths & legacy migration
+    ├── quotes.py        # Quote contract, text and PDF
     ├── i18n.py          # Internationalization (EN/ES)
-    ├── pdf_invoice.py   # PDF invoice & quote generator
+    ├── pdf_invoice.py   # PDF invoice generator
     ├── export.py        # Export to Excel/PDF
     └── notifications.py # Windows notifications
 ```
@@ -68,6 +75,7 @@ PrintMoney/
 |--------|-------------|
 | 📊 **Dashboard** | Monthly KPIs, profit chart, recent orders at a glance |
 | 📦 **Orders** | Full CRUD, automatic inventory deduction, PDF invoices |
+| 🧾 **Quotes** | Quote history, statuses, PDF/text and convert-to-order |
 | 💸 **Expenses** | Editable categories, recurring expenses |
 | 🧵 **Inventory** | Filament stock tracking with low-level alerts |
 | 📋 **Catalog** | Saved product designs for quick order entry |
@@ -93,8 +101,9 @@ The project ships with a regression suite that runs without a display and
 without touching your real database (it uses a temporary copy):
 
 ```bash
-python tests_regression.py   # 35 tests – data layer, PDF, notifications, pagination
-python tests_ui_smoke.py     # 14 tests – builds the real Tkinter views and exercises them
+python tests_regression.py   # 63 tests – data, PDF, i18n, migrations, paths, pagination
+python tests_ui_smoke.py     # 19 tests – real Tkinter views and flows
+python tests_atomic_io.py    # 5 tests – atomic config writes
 ```
 
 ## Repairing the filament inventory
@@ -110,13 +119,29 @@ python reparar_inventario.py             # apply (asks for confirmation)
 
 ---
 
+## Build a Windows executable
+
+```powershell
+pip install -r requirements.txt -r requirements-build.txt
+.\build.ps1
+# If PowerShell blocks unsigned scripts:
+.\build.bat
+```
+
+The result is `dist\PrintMoney\PrintMoney.exe` (onedir). Distribute the whole
+`dist\PrintMoney` folder, not only the `.exe`. Windows may show a SmartScreen
+warning because the exe is not signed; choose **Run**. The app reads and
+writes user data under `%APPDATA%\PrintMoney`; `pandas` is not bundled.
+
 ## Technical Notes
 
-- **Database**: SQLite stored at `data/printmoney.db`
-- **Auto-backup**: Daily backups saved to `data/backups/backup_YYYY-MM-DD.db`
-- **Auto-save**: Every 10 minutes (configurable)
+- **Data folder**: `%APPDATA%\PrintMoney`, with fallback to `%LOCALAPPDATA%\PrintMoney` and `PrintMoneyData` next to the exe (override with `PRINTMONEY_DATA_DIR`)
+- **Database**: SQLite at `%APPDATA%\PrintMoney\data\printmoney.db` (or the active fallback folder)
+- **Backups**: daily in `data\backups\backup_YYYY-MM-DD.db`; manual backups include a timestamp
+- **Transactions**: every operation commits immediately; there is no simulated autosave
 - **Notifications**: Uses `win10toast` with `plyer` fallback
 - **Language**: Bilingual support — switch between English and Spanish instantly
+- **Packaging**: PyInstaller onedir; user data and assets stay separate
 
 ---
 

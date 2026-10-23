@@ -6,15 +6,8 @@ from tkinter import messagebox
 from datetime import date
 import db_manager
 from utils.i18n import T
-
-COLOR_BG     = "#0F0F0F"
-COLOR_CARD   = "#1E1E1E"
-COLOR_ACCENT = "#00FF9D"
-COLOR_TEXT   = "#FFFFFF"
-COLOR_SUB    = "#888888"
-COLOR_RED    = "#FF4C4C"
-COLOR_BORDER = "#2D2D2D"
-COLOR_HOVER  = "#2A2A2A"
+from ui import theme as th
+from ui import components as ui
 
 # La frecuencia se guarda SIEMPRE en un código canónico ('mensual',
 # 'semanal', 'anual') y se traduce solo al mostrarlo. Antes se guardaba el
@@ -51,9 +44,10 @@ class ExpensesView(ctk.CTkFrame):
     """Vista de gestión de gastos con formulario y tabla."""
 
     def __init__(self, master, app, **kwargs):
-        super().__init__(master, fg_color=COLOR_BG, corner_radius=0, **kwargs)
+        super().__init__(master, fg_color=th.BG, corner_radius=0, **kwargs)
         self.app = app
         self._gasto_editando = None
+        self._todos_gastos = []
         self._construir_ui()
 
     def on_show(self):
@@ -63,128 +57,95 @@ class ExpensesView(ctk.CTkFrame):
     def _construir_ui(self):
         """Construye el layout de la vista de gastos."""
         # Encabezado
-        frame_header = ctk.CTkFrame(self, fg_color="transparent")
-        frame_header.pack(fill="x", padx=28, pady=(22, 0))
-        ctk.CTkLabel(frame_header, text=T("expenses_title"),
-                     font=ctk.CTkFont(family="Segoe UI", size=26, weight="bold"),
-                     text_color=COLOR_TEXT).pack(side="left")
+        _, acciones = ui.page_header(self, T("expenses_title"))
 
-        ctk.CTkButton(frame_header, text=T("expenses_new"),
-                      fg_color=COLOR_ACCENT, hover_color="#00CC7A",
-                      text_color="#000000", corner_radius=10,
-                      font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-                      command=self._nuevo_gasto, width=130, height=36).pack(side="right")
+        ui.primary_button(acciones, T("expenses_new"), self._nuevo_gasto,
+                          width=150).pack(side="right")
 
         # Layout principal
         frame_main = ctk.CTkFrame(self, fg_color="transparent")
-        frame_main.pack(fill="both", expand=True, padx=28, pady=14)
+        frame_main.pack(fill="both", expand=True, padx=th.PAD_PAGE, pady=14)
         frame_main.columnconfigure(0, weight=3)
         frame_main.columnconfigure(1, weight=2)
         frame_main.rowconfigure(0, weight=1)
 
         # Tabla
-        frame_tabla = ctk.CTkFrame(frame_main, fg_color=COLOR_CARD, corner_radius=14,
-                                   border_width=1, border_color=COLOR_BORDER)
-        frame_tabla.grid(row=0, column=0, padx=(0, 8), sticky="nsew")
+        frame_tabla = ctk.CTkFrame(frame_main, fg_color="transparent")
+        frame_tabla.grid(row=0, column=0, padx=(0, th.GAP), sticky="nsew")
 
         cols = [T("expenses_col_id"), T("expenses_col_date"), T("expenses_col_cat"),
                 T("expenses_col_desc"), T("expenses_col_amount"), T("expenses_col_recur")]
-        frame_col_h = ctk.CTkFrame(frame_tabla, fg_color="#252525", corner_radius=0)
-        frame_col_h.pack(fill="x")
-        for col in cols:
-            ctk.CTkLabel(frame_col_h, text=col, text_color=COLOR_SUB,
-                         font=ctk.CTkFont(size=11, weight="bold"),
-                         anchor="w").pack(side="left", padx=8, pady=6, expand=True, fill="x")
-
-        self.frame_scroll = ctk.CTkScrollableFrame(frame_tabla, fg_color="transparent")
-        self.frame_scroll.pack(fill="both", expand=True)
+        self.tabla = ui.DataTable(frame_tabla, columnas=cols, pesos=[1, 2, 2, 4, 2, 2],
+                                  alinear=["w", "w", "w", "w", "e", "w"],
+                                  on_select=lambda g: self._seleccionar_gasto(g["id"]))
+        self.tabla.pack(fill="both", expand=True)
 
         # Formulario
-        self.frame_form = ctk.CTkScrollableFrame(frame_main, fg_color=COLOR_CARD,
-                                                  corner_radius=14, border_width=1,
-                                                  border_color=COLOR_BORDER)
+        self.frame_form = ui.scrollable(frame_main, fg_color=th.CARD,
+                                        corner_radius=th.RADIUS_CARD,
+                                        border_width=1, border_color=th.BORDER)
         self.frame_form.grid(row=0, column=1, sticky="nsew")
         self._construir_formulario(self.frame_form)
 
     def _construir_formulario(self, parent):
         """Construye el formulario de gastos."""
-        ctk.CTkLabel(parent, text=T("expenses_form_title"),
-                     font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"),
-                     text_color=COLOR_TEXT).pack(anchor="w", padx=14, pady=(14, 4))
+        ui.section_title(parent, T("expenses_form_title")).pack(
+            anchor="w", padx=14, pady=(14, 8))
 
-        def lbl(t): ctk.CTkLabel(parent, text=t, text_color=COLOR_SUB,
-                                  font=ctk.CTkFont(size=11)).pack(anchor="w", padx=14, pady=(8, 2))
-        def ent(ph=""):
-            e = ctk.CTkEntry(parent, placeholder_text=ph, fg_color="#252525",
-                             border_color=COLOR_BORDER, text_color=COLOR_TEXT,
-                             corner_radius=8, height=34)
-            e.pack(fill="x", padx=14)
-            return e
+        cont = ctk.CTkFrame(parent, fg_color="transparent")
+        cont.pack(fill="both", expand=True, padx=14, pady=(0, 14))
 
-        lbl(T("expenses_date")); self.ent_fecha = ent("YYYY-MM-DD")
+        ui.section_label(cont, T("expenses_date")).pack(anchor="w", pady=(0, 2))
+        self.ent_fecha = ui.entry(cont, "YYYY-MM-DD")
+        self.ent_fecha.pack(fill="x", pady=(0, th.GAP))
         self.ent_fecha.insert(0, str(date.today()))
 
-        lbl(T("expenses_category"))
+        ui.section_label(cont, T("expenses_category")).pack(anchor="w", pady=(0, 2))
         self._categorias_data = {c["nombre"]: c for c in db_manager.obtener_categorias_gastos()}
-        self.combo_cat = ctk.CTkOptionMenu(
-            parent, values=list(self._categorias_data.keys()),
-            fg_color="#252525", button_color=COLOR_BORDER,
-            text_color=COLOR_TEXT, dropdown_fg_color=COLOR_CARD,
-            corner_radius=8, height=34
-        )
-        self.combo_cat.pack(fill="x", padx=14)
+        self.combo_cat = ui.option_menu(cont, values=list(self._categorias_data.keys()))
+        self.combo_cat.pack(fill="x", pady=(0, th.GAP))
 
-        lbl(T("expenses_desc")); self.ent_desc = ent(T("expenses_desc_ph"))
-        lbl(T("expenses_amount")); self.ent_monto = ent("0.00")
-        lbl(T("expenses_notes")); self.ent_notas = ent(T("expenses_notes_ph"))
+        ui.section_label(cont, T("expenses_desc")).pack(anchor="w", pady=(0, 2))
+        self.ent_desc = ui.entry(cont, T("expenses_desc_ph"))
+        self.ent_desc.pack(fill="x", pady=(0, th.GAP))
+
+        ui.section_label(cont, T("expenses_amount")).pack(anchor="w", pady=(0, 2))
+        self.ent_monto = ui.entry(cont, "0.00")
+        self.ent_monto.pack(fill="x", pady=(0, th.GAP))
+
+        ui.section_label(cont, T("expenses_notes")).pack(anchor="w", pady=(0, 2))
+        self.ent_notas = ui.entry(cont, T("expenses_notes_ph"))
+        self.ent_notas.pack(fill="x", pady=(0, th.GAP))
 
         # ── Recurrente ──
-        ctk.CTkFrame(parent, height=1, fg_color=COLOR_BORDER).pack(fill="x", padx=14, pady=10)
+        ui.divider(cont).pack(fill="x", pady=10)
         self.var_recurrente = ctk.BooleanVar(value=False)
-        ctk.CTkCheckBox(parent, text=T("expenses_recurring"),
-                        variable=self.var_recurrente, fg_color=COLOR_ACCENT,
-                        hover_color="#00CC7A", checkmark_color="#000000",
-                        text_color=COLOR_SUB,
-                        command=self._toggle_recurrente).pack(anchor="w", padx=14)
+        ui.checkbox(cont, T("expenses_recurring"), self.var_recurrente,
+                    command=self._toggle_recurrente).pack(anchor="w")
 
-        ctk.CTkLabel(parent, text=T("expenses_frequency"), text_color=COLOR_SUB,
-                     font=ctk.CTkFont(size=11)).pack(anchor="w", padx=14, pady=(8, 2))
-        self.combo_freq = ctk.CTkOptionMenu(
-            parent, values=[T("freq_monthly"), T("freq_weekly"), T("freq_yearly")],
-            fg_color="#252525", button_color=COLOR_BORDER,
-            text_color=COLOR_TEXT, dropdown_fg_color=COLOR_CARD,
-            corner_radius=8, height=34, state="disabled"
+        ui.section_label(cont, T("expenses_frequency")).pack(anchor="w", pady=(8, 2))
+        self.combo_freq = ui.option_menu(
+            cont, values=[T("freq_monthly"), T("freq_weekly"), T("freq_yearly")],
+            state="disabled"
         )
-        self.combo_freq.pack(fill="x", padx=14)
+        self.combo_freq.pack(fill="x")
 
         # ── Nueva categoría rápida ──
-        ctk.CTkFrame(parent, height=1, fg_color=COLOR_BORDER).pack(fill="x", padx=14, pady=10)
-        ctk.CTkLabel(parent, text=T("expenses_new_cat"), text_color=COLOR_SUB,
-                     font=ctk.CTkFont(size=11)).pack(anchor="w", padx=14, pady=(0, 2))
-        frame_cat_add = ctk.CTkFrame(parent, fg_color="transparent")
-        frame_cat_add.pack(fill="x", padx=14)
-        self.ent_nueva_cat = ctk.CTkEntry(frame_cat_add, placeholder_text=T("expenses_cat_ph"),
-                                          fg_color="#252525", border_color=COLOR_BORDER,
-                                          text_color=COLOR_TEXT, corner_radius=8, height=32)
+        ui.divider(cont).pack(fill="x", pady=10)
+        ui.section_label(cont, T("expenses_new_cat")).pack(anchor="w", pady=(0, 2))
+        frame_cat_add = ctk.CTkFrame(cont, fg_color="transparent")
+        frame_cat_add.pack(fill="x")
+        self.ent_nueva_cat = ui.entry(frame_cat_add, T("expenses_cat_ph"))
         self.ent_nueva_cat.pack(side="left", fill="x", expand=True, padx=(0, 6))
-        ctk.CTkButton(frame_cat_add, text="+", width=36, height=32,
-                      fg_color=COLOR_CARD, hover_color=COLOR_HOVER,
-                      text_color=COLOR_ACCENT,
-                      command=self._agregar_categoria).pack(side="right")
+        ui.icon_button(frame_cat_add, "+", self._agregar_categoria,
+                       width=36).pack(side="right")
 
-        ctk.CTkFrame(parent, height=1, fg_color=COLOR_BORDER).pack(fill="x", padx=14, pady=10)
+        ui.divider(cont).pack(fill="x", pady=10)
 
-        ctk.CTkButton(parent, text=T("expenses_save"),
-                      fg_color=COLOR_ACCENT, hover_color="#00CC7A",
-                      text_color="#000000",
-                      font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
-                      height=40, corner_radius=10,
-                      command=self._guardar_gasto).pack(fill="x", padx=14, pady=(0, 6))
+        ui.primary_button(cont, T("expenses_save"), self._guardar_gasto).pack(
+            fill="x", pady=(0, 6))
 
-        ctk.CTkButton(parent, text=T("expenses_delete"),
-                      fg_color="#2D0000", hover_color="#3D0000",
-                      text_color=COLOR_RED, height=34, corner_radius=10,
-                      command=self._eliminar_gasto).pack(fill="x", padx=14, pady=(0, 14))
+        ui.danger_button(cont, T("expenses_delete"), self._eliminar_gasto).pack(fill="x")
 
     def _toggle_recurrente(self):
         if self.var_recurrente.get():
@@ -211,25 +172,28 @@ class ExpensesView(ctk.CTkFrame):
         if seleccion in valores:
             self.combo_cat.set(seleccion)
 
-        for w in self.frame_scroll.winfo_children():
-            w.destroy()
         gastos = db_manager.obtener_gastos()
         self._todos_gastos = gastos
 
-        for i, g in enumerate(gastos):
-            row = ctk.CTkFrame(self.frame_scroll,
-                               fg_color="#252525" if i % 2 == 0 else COLOR_CARD,
-                               corner_radius=0)
-            row.pack(fill="x")
-            row.bind("<Button-1>", lambda e, gid=g["id"]: self._seleccionar_gasto(gid))
-            for txt in [str(g["id"]), g.get("fecha",""), g.get("categoria_nombre",""),
-                        (g.get("descripcion") or "")[:24],
-                        f"${g.get('monto',0):.2f}",
-                        "✓" if g.get("recurrente") else ""]:
-                lbl = ctk.CTkLabel(row, text=txt, text_color=COLOR_TEXT,
-                                   font=ctk.CTkFont(size=11), anchor="w")
-                lbl.pack(side="left", padx=8, pady=5, expand=True, fill="x")
-                lbl.bind("<Button-1>", lambda e, gid=g["id"]: self._seleccionar_gasto(gid))
+        if not gastos:
+            self.tabla.mostrar_vacio(T("expenses_empty_title"), icono="💸",
+                                     hint=T("expenses_empty_hint"))
+            return
+
+        firma = tuple((g["id"], g.get("fecha"), g.get("monto"), g.get("recurrente"),
+                       g.get("categoria_nombre"), g.get("descripcion")) for g in gastos)
+        celdas = [
+            [
+                str(g["id"]),
+                g.get("fecha", ""),
+                g.get("categoria_nombre", "") or "—",
+                (g.get("descripcion") or "")[:28],
+                f"${g.get('monto', 0):.2f}",
+                (T("expenses_yes"), th.YELLOW) if g.get("recurrente") else "—",
+            ]
+            for g in gastos
+        ]
+        self.tabla.set_rows(gastos, celdas, firma=firma)
 
     def _seleccionar_gasto(self, gasto_id):
         gastos = [g for g in self._todos_gastos if g["id"] == gasto_id]

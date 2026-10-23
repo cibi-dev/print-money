@@ -5,22 +5,21 @@ import sqlite3
 import os
 import json
 from contextlib import contextmanager
-from datetime import date
+from datetime import date, datetime
 
-import sys
+from utils import paths
 
-# Ruta de la base de datos
-if getattr(sys, 'frozen', False):
-    # Si es un ejecutable PyInstaller, usar la carpeta donde está el .exe
-    BASE_DIR = os.path.dirname(sys.executable)
-else:
-    BASE_DIR = os.path.dirname(__file__)
-
-DB_PATH = os.path.join(BASE_DIR, "data", "printmoney.db")
-BACKUP_DIR = os.path.join(BASE_DIR, "data", "backups")
+# Los tests y scripts pueden sobrescribir estas rutas antes de inicializar.
+DB_PATH = paths.DB_PATH
+BACKUP_DIR = paths.BACKUP_DIR
+CONFIG_PATH = paths.CONFIG_PATH
 
 # Número máximo de backups diarios que se conservan (los manuales nunca se purgan)
 MAX_BACKUPS = 30
+
+# Versión del esquema. Subir al añadir una migración y agregar su bloque
+# correspondiente en _migrar_esquema().
+SCHEMA_VERSION = 1
 
 
 @contextmanager
@@ -36,6 +35,7 @@ def obtener_conexion():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA synchronous = NORMAL")
     try:
         yield conn
         conn.commit()
@@ -47,17 +47,17 @@ def obtener_conexion():
 
 
 def ruta_backups() -> str:
-    """Devuelve la ruta absoluta de la carpeta de backups respetando config.json."""
+    """Devuelve la carpeta de backups respetando config.json."""
     carpeta = ""
     try:
-        with open(os.path.join(BASE_DIR, "config.json"), "r", encoding="utf-8") as f:
+        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
             carpeta = (json.load(f) or {}).get("carpeta_backups") or ""
     except Exception:
         carpeta = ""
     if not carpeta:
-        carpeta = "data/backups"
+        return BACKUP_DIR
     if not os.path.isabs(carpeta):
-        carpeta = os.path.join(BASE_DIR, carpeta)
+        carpeta = os.path.join(paths.DATA_DIR, carpeta)
     return carpeta
 
 
@@ -67,12 +67,32 @@ def _num(datos: dict, clave: str, defecto=0.0):
     return defecto if valor is None else valor
 
 
+def _columnas_tabla(conn, tabla: str):
+    """Devuelve el conjunto de columnas actuales de una tabla."""
+    return {fila["name"] for fila in conn.execute(f"PRAGMA table_info({tabla})")}
+
+
+def _migrar_esquema(conn, version: int):
+    """Aplica migraciones incrementales a bases de datos ya existentes."""
+    if version < 1:
+        columnas = _columnas_tabla(conn, "pedidos")
+        if "factura_generada" not in columnas:
+            conn.execute(
+                "ALTER TABLE pedidos ADD COLUMN factura_generada INTEGER DEFAULT 0"
+            )
+
+
 def inicializar_db():
     """Crea todas las tablas e índices si no existen. Se llama en el arranque."""
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     os.makedirs(ruta_backups(), exist_ok=True)
 
     with obtener_conexion() as conn:
+        try:
+            conn.execute("PRAGMA journal_mode = WAL")
+        except sqlite3.Error:
+            pass  # FS de red sin soporte de WAL
+
         cursor = conn.cursor()
 
         # --- Tabla de clientes ---
@@ -187,6 +207,50 @@ def inicializar_db():
             )
         """)
 
+        # --- Cotizaciones ---
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS cotizaciones (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                numero TEXT NOT NULL UNIQUE,
+                fecha TEXT NOT NULL,
+                validez_dias INTEGER NOT NULL DEFAULT 7,
+                cliente_id INTEGER REFERENCES clientes(id) ON DELETE SET NULL,
+                cliente_nombre TEXT,
+                estado TEXT NOT NULL DEFAULT 'borrador',
+                subtotal REAL NOT NULL DEFAULT 0,
+                descuento REAL NOT NULL DEFAULT 0,
+                total REAL NOT NULL DEFAULT 0,
+                moneda TEXT NOT NULL DEFAULT '$',
+                notas TEXT,
+                condiciones TEXT,
+                creada_en TEXT NOT NULL,
+                pedido_id INTEGER REFERENCES pedidos(id) ON DELETE SET NULL
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS cotizacion_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cotizacion_id INTEGER NOT NULL REFERENCES cotizaciones(id) ON DELETE CASCADE,
+                descripcion TEXT NOT NULL,
+                cantidad REAL NOT NULL DEFAULT 1,
+                material TEXT,
+                gramos REAL DEFAULT 0,
+                horas REAL DEFAULT 0,
+                costo_material REAL DEFAULT 0,
+                costo_tiempo REAL DEFAULT 0,
+                filamento_id INTEGER REFERENCES filamentos(id) ON DELETE SET NULL,
+                precio_unitario REAL NOT NULL DEFAULT 0
+            )
+        """)
+
+        # Las migraciones van antes de los índices: una versión futura puede
+        # añadir una columna que luego se indexa.
+        version_actual = conn.execute("PRAGMA user_version").fetchone()[0]
+        if version_actual < SCHEMA_VERSION:
+            _migrar_esquema(conn, version_actual)
+            conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+
         # --- Índices ---
         # Los reportes filtran y agregan por fecha y estado; sin índices cada
         # informe recorría la tabla entera en cada consulta.
@@ -201,6 +265,9 @@ def inicializar_db():
             "CREATE INDEX IF NOT EXISTS idx_clientes_nombre ON clientes(nombre)",
             "CREATE INDEX IF NOT EXISTS idx_historial_pedido ON historial_filamento(pedido_id)",
             "CREATE INDEX IF NOT EXISTS idx_historial_filamento ON historial_filamento(filamento_id)",
+            "CREATE INDEX IF NOT EXISTS idx_cotizaciones_fecha ON cotizaciones(fecha)",
+            "CREATE INDEX IF NOT EXISTS idx_cotizaciones_estado ON cotizaciones(estado)",
+            "CREATE INDEX IF NOT EXISTS idx_cotizacion_items_cot ON cotizacion_items(cotizacion_id)",
         ):
             cursor.execute(sql)
 
@@ -274,7 +341,7 @@ def hacer_backup_manual() -> str:
         raise FileNotFoundError(DB_PATH)
     backup_dir = ruta_backups()
     os.makedirs(backup_dir, exist_ok=True)
-    nombre = f"backup_manual_{date.today().strftime('%Y-%m-%d')}.db"
+    nombre = f"backup_manual_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S_%f')}.db"
     ruta = os.path.join(backup_dir, nombre)
     _copiar_db_segura(ruta)
     return ruta
@@ -386,10 +453,12 @@ def _sincronizar_consumo(conn, pedido_id, filamento_previo, gramos_previos,
         )
 
 
-def agregar_pedido(datos: dict):
+def agregar_pedido(datos: dict, cotizacion_id=None):
     """
     Inserta un nuevo pedido y descuenta gramos del inventario automáticamente.
     datos: dict con todos los campos del pedido.
+    cotizacion_id: si viene de una cotización, la marca aceptada y la enlaza
+    en la misma transacción.
     """
     precio_venta = _num(datos, "precio_venta", 0)
     costo_total = (_num(datos, "costo_material") + _num(datos, "costo_tiempo")
@@ -428,6 +497,15 @@ def agregar_pedido(datos: dict):
 
         # Descontar gramos del inventario si hay filamento asignado
         _sincronizar_consumo(conn, pedido_id, None, 0, filamento_id, gramos_usados)
+
+        # La cotización solo se acepta cuando el pedido ya existe. El filtro
+        # pedido_id IS NULL evita reenlazar una cotización ya convertida.
+        if cotizacion_id:
+            conn.execute(
+                "UPDATE cotizaciones SET estado='aceptada', pedido_id=? "
+                "WHERE id=? AND pedido_id IS NULL",
+                (pedido_id, cotizacion_id),
+            )
 
     return pedido_id
 
@@ -718,11 +796,12 @@ def obtener_estadisticas_mes(year, month):
         ).fetchone()
         pendientes = r["total"]
 
+    ganancia_neta = ganancia_pedidos - gastos
     return {
         "ingresos": ingresos,
         "gastos": gastos,
-        "ganancia_neta": ganancia_pedidos - gastos,
-        "margen": (ganancia_pedidos / ingresos * 100) if ingresos > 0 else 0,
+        "ganancia_neta": ganancia_neta,
+        "margen": (ganancia_neta / ingresos * 100) if ingresos > 0 else 0,
         "num_pedidos": num_pedidos,
         "pendientes": pendientes
     }
@@ -944,3 +1023,125 @@ def eliminar_producto_catalogo(id):
     """Elimina un producto del catálogo."""
     with obtener_conexion() as conn:
         conn.execute("DELETE FROM catalogo WHERE id=?", (id,))
+
+
+# ======================== COTIZACIONES ========================
+
+ESTADOS_COTIZACION = ("borrador", "enviada", "aceptada", "rechazada")
+
+
+def _siguiente_numero_cotizacion(conn, fecha):
+    anio = str(fecha or date.today())[:4]
+    fila = conn.execute(
+        "SELECT MAX(CAST(substr(numero, 8) AS INTEGER)) AS ultimo "
+        "FROM cotizaciones WHERE numero LIKE ?",
+        (f"C-{anio}-%",),
+    ).fetchone()
+    siguiente = int(fila["ultimo"] or 0) + 1
+    return f"C-{anio}-{siguiente:04d}"
+
+
+def crear_cotizacion(fecha, cliente_id, cliente_nombre, validez_dias, notas,
+                     condiciones, items, moneda="$", descuento=0.0):
+    """Crea una cotización con sus ítems y devuelve id, numero y totales."""
+    fecha = str(fecha or date.today())
+    validez_dias = int(validez_dias or 7)
+    descuento = max(0.0, float(descuento or 0))
+    items = items or []
+
+    subtotal = 0.0
+    for item in items:
+        cantidad = max(0.0, float(item.get("cantidad") or 1))
+        precio = max(0.0, float(item.get("precio_unitario") or 0))
+        subtotal += cantidad * precio
+    total = max(0.0, subtotal - descuento)
+
+    with obtener_conexion() as conn:
+        numero = _siguiente_numero_cotizacion(conn, fecha)
+        cursor = conn.execute(
+            """INSERT INTO cotizaciones
+               (numero, fecha, validez_dias, cliente_id, cliente_nombre, estado,
+                subtotal, descuento, total, moneda, notas, condiciones, creada_en)
+               VALUES (?,?,?,?,?,'borrador',?,?,?,?,?,?,?)""",
+            (numero, fecha, validez_dias, cliente_id, cliente_nombre,
+             subtotal, descuento, total, moneda, notas or "", condiciones or "",
+             datetime.now().isoformat(timespec="seconds")),
+        )
+        cotizacion_id = cursor.lastrowid
+        for item in items:
+            conn.execute(
+                """INSERT INTO cotizacion_items
+                   (cotizacion_id, descripcion, cantidad, material, gramos, horas,
+                    costo_material, costo_tiempo, filamento_id, precio_unitario)
+                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                (cotizacion_id,
+                 item.get("descripcion") or "Impresión 3D",
+                 max(0.0, float(item.get("cantidad") or 1)),
+                 item.get("material") or "",
+                 float(item.get("gramos") or 0),
+                 float(item.get("horas") or 0),
+                 float(item.get("costo_material") or 0),
+                 float(item.get("costo_tiempo") or 0),
+                 item.get("filamento_id"),
+                 max(0.0, float(item.get("precio_unitario") or 0))),
+            )
+    return {"id": cotizacion_id, "numero": numero,
+            "subtotal": subtotal, "total": total}
+
+
+def obtener_cotizaciones(filtro_estado=None, filtro_texto=None, limite=None):
+    query = """
+        SELECT c.*, COUNT(i.id) AS num_items
+        FROM cotizaciones c
+        LEFT JOIN cotizacion_items i ON i.cotizacion_id = c.id
+        WHERE 1=1
+    """
+    params = []
+    if filtro_estado:
+        query += " AND c.estado = ?"
+        params.append(filtro_estado)
+    if filtro_texto:
+        patron = f"%{filtro_texto.strip()}%"
+        query += (" AND (c.numero LIKE ? OR c.cliente_nombre LIKE ? OR EXISTS ("
+                  "SELECT 1 FROM cotizacion_items i2 WHERE i2.cotizacion_id = c.id "
+                  "AND i2.descripcion LIKE ?))")
+        params.extend([patron, patron, patron])
+    query += " GROUP BY c.id ORDER BY c.fecha DESC, c.id DESC"
+    if limite is not None:
+        query += " LIMIT ?"
+        params.append(limite)
+    with obtener_conexion() as conn:
+        rows = conn.execute(query, params).fetchall()
+    return [dict(r) for r in rows]
+
+
+def obtener_cotizacion(id):
+    with obtener_conexion() as conn:
+        fila = conn.execute("SELECT * FROM cotizaciones WHERE id=?", (id,)).fetchone()
+        if not fila:
+            return None
+        items = conn.execute(
+            "SELECT * FROM cotizacion_items WHERE cotizacion_id=? ORDER BY id",
+            (id,)).fetchall()
+    cot = dict(fila)
+    cot["items"] = [dict(i) for i in items]
+    return cot
+
+
+def actualizar_estado_cotizacion(id, estado):
+    if estado not in ESTADOS_COTIZACION:
+        raise ValueError(f"Estado de cotización inválido: {estado}")
+    with obtener_conexion() as conn:
+        conn.execute("UPDATE cotizaciones SET estado=? WHERE id=?", (estado, id))
+
+
+def marcar_cotizacion_convertida(id, pedido_id=None):
+    with obtener_conexion() as conn:
+        conn.execute(
+            "UPDATE cotizaciones SET estado='aceptada', pedido_id=? WHERE id=?",
+            (pedido_id, id))
+
+
+def eliminar_cotizacion(id):
+    with obtener_conexion() as conn:
+        conn.execute("DELETE FROM cotizaciones WHERE id=?", (id,))

@@ -6,24 +6,18 @@ from tkinter import messagebox
 import db_manager
 from datetime import datetime, date
 from utils.i18n import T
-
-COLOR_BG     = "#0F0F0F"
-COLOR_CARD   = "#1E1E1E"
-COLOR_ACCENT = "#00FF9D"
-COLOR_TEXT   = "#FFFFFF"
-COLOR_SUB    = "#888888"
-COLOR_BORDER = "#2D2D2D"
-COLOR_HOVER  = "#2A2A2A"
-COLOR_RED    = "#FF4C4C"
+from ui import theme as th
+from ui import components as ui
 
 
 class ClientsView(ctk.CTkFrame):
     """Vista de gestión de clientes con historial y estadísticas."""
 
     def __init__(self, master, app, **kwargs):
-        super().__init__(master, fg_color=COLOR_BG, corner_radius=0, **kwargs)
+        super().__init__(master, fg_color=th.BG, corner_radius=0, **kwargs)
         self.app = app
         self._cliente_seleccionado = None
+        self._todos_clientes = []
         self._debounce_buscar = None
         self._construir_ui()
 
@@ -31,85 +25,75 @@ class ClientsView(ctk.CTkFrame):
         self._cargar_clientes()
 
     def _construir_ui(self):
-        frame_header = ctk.CTkFrame(self, fg_color="transparent")
-        frame_header.pack(fill="x", padx=28, pady=(22, 0))
-        ctk.CTkLabel(frame_header, text=T("clients_title"),
-                     font=ctk.CTkFont(family="Segoe UI", size=26, weight="bold"),
-                     text_color=COLOR_TEXT).pack(side="left")
-        ctk.CTkButton(frame_header, text=T("clients_new"),
-                      fg_color=COLOR_ACCENT, hover_color="#00CC7A",
-                      text_color="#000000", corner_radius=10,
-                      font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-                      command=self._nuevo_cliente, width=140, height=36).pack(side="right")
+        _, zona_acciones = ui.page_header(self, T("clients_title"))
+        ui.primary_button(zona_acciones, T("clients_new"),
+                          self._nuevo_cliente, width=150).pack(side="right")
 
         frame_main = ctk.CTkFrame(self, fg_color="transparent")
-        frame_main.pack(fill="both", expand=True, padx=28, pady=14)
+        frame_main.pack(fill="both", expand=True, padx=th.PAD_PAGE, pady=14)
         frame_main.columnconfigure(0, weight=2)
         frame_main.columnconfigure(1, weight=2)
         frame_main.columnconfigure(2, weight=3)
         frame_main.rowconfigure(0, weight=1)
 
-        frame_lista = ctk.CTkFrame(frame_main, fg_color=COLOR_CARD, corner_radius=14,
-                                   border_width=1, border_color=COLOR_BORDER)
-        frame_lista.grid(row=0, column=0, padx=(0, 6), sticky="nsew")
+        frame_lista = ui.card(frame_main)
+        frame_lista.grid(row=0, column=0, padx=(0, th.GAP), sticky="nsew")
 
-        ctk.CTkLabel(frame_lista, text=T("clients_list"),
-                     font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
-                     text_color=COLOR_TEXT).pack(anchor="w", padx=14, pady=(14, 6))
+        ui.section_title(frame_lista, T("clients_list")).pack(
+            anchor="w", padx=14, pady=(14, 6))
 
-        self.entry_buscar = ctk.CTkEntry(frame_lista, placeholder_text=T("clients_search_ph"),
-                                          fg_color="#252525", border_color=COLOR_BORDER,
-                                          text_color=COLOR_TEXT, corner_radius=8, height=32)
+        self.entry_buscar = ui.entry(frame_lista, T("clients_search_ph"), height=32)
         self.entry_buscar.pack(fill="x", padx=10, pady=(0, 6))
         self.entry_buscar.bind("<KeyRelease>", self._on_buscar_tecla)
 
-        self.frame_lista_scroll = ctk.CTkScrollableFrame(frame_lista, fg_color="transparent")
+        self.frame_lista_scroll = ui.scrollable(frame_lista)
         self.frame_lista_scroll.pack(fill="both", expand=True, padx=4, pady=(0, 6))
 
-        self.frame_form = ctk.CTkScrollableFrame(frame_main, fg_color=COLOR_CARD,
-                                                  corner_radius=14, border_width=1,
-                                                  border_color=COLOR_BORDER)
-        self.frame_form.grid(row=0, column=1, padx=(0, 6), sticky="nsew")
+        self.frame_form = ui.scrollable(frame_main, fg_color=th.CARD,
+                                        corner_radius=th.RADIUS_CARD,
+                                        border_width=1, border_color=th.BORDER)
+        self.frame_form.grid(row=0, column=1, padx=(0, th.GAP), sticky="nsew")
         self._construir_formulario(self.frame_form)
 
-        frame_hist = ctk.CTkFrame(frame_main, fg_color=COLOR_CARD, corner_radius=14,
-                                  border_width=1, border_color=COLOR_BORDER)
+        frame_hist = ui.card(frame_main)
         frame_hist.grid(row=0, column=2, sticky="nsew")
 
-        ctk.CTkLabel(frame_hist, text=T("clients_history"),
-                     font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
-                     text_color=COLOR_TEXT).pack(anchor="w", padx=14, pady=(14, 4))
+        ui.section_title(frame_hist, T("clients_history")).pack(
+            anchor="w", padx=14, pady=(14, 4))
 
-        self.frame_stats = ctk.CTkFrame(frame_hist, fg_color="#252525", corner_radius=10)
+        self.frame_stats = ctk.CTkFrame(frame_hist, fg_color=th.SURFACE,
+                                        corner_radius=th.RADIUS_CTRL)
         self.frame_stats.pack(fill="x", padx=10, pady=(0, 8))
         self.lbl_stats = ctk.CTkLabel(self.frame_stats,
-                                       text=T("clients_stats_empty"),
-                                       text_color=COLOR_SUB, font=ctk.CTkFont(size=11),
-                                       justify="left")
+                                      text=T("clients_stats_empty"),
+                                      text_color=th.SUB, font=th.fuente(th.FONT_LABEL),
+                                      justify="left")
         self.lbl_stats.pack(padx=12, pady=10, anchor="w")
-        
-        self.frame_crm = ctk.CTkFrame(frame_hist, fg_color="#FF9D00", corner_radius=10)
-        self.lbl_crm = ctk.CTkLabel(self.frame_crm, text=T("clients_crm_alert"),
-                                    font=ctk.CTkFont(size=12, weight="bold"), text_color="#111111")
-        self.lbl_crm.pack(side="left", padx=10, pady=8)
-        ctk.CTkButton(self.frame_crm, text=T("clients_crm_copy"), fg_color="#111111", hover_color="#222222",
-                      text_color="#FFFFFF", font=ctk.CTkFont(size=11, weight="bold"), height=26, width=100,
-                      command=self._copiar_mensaje_crm).pack(side="right", padx=10, pady=6)
 
-        self.frame_hist_scroll = ctk.CTkScrollableFrame(frame_hist, fg_color="transparent")
+        self.frame_crm = ctk.CTkFrame(frame_hist, fg_color=th.YELLOW,
+                                      corner_radius=th.RADIUS_CTRL)
+        self.lbl_crm = ctk.CTkLabel(self.frame_crm, text=T("clients_crm_alert"),
+                                    font=th.fuente(th.FONT_BODY, True),
+                                    text_color=th.INK)
+        self.lbl_crm.pack(side="left", padx=10, pady=8)
+        ui.secondary_button(self.frame_crm, T("clients_crm_copy"),
+                            self._copiar_mensaje_crm, width=100, height=26,
+                            fg_color=th.BG, hover_color=th.SURFACE,
+                            text_color=th.TEXT, border_width=0,
+                            font=th.fuente(11, True)).pack(side="right", padx=10, pady=6)
+
+        self.frame_hist_scroll = ui.scrollable(frame_hist)
         self.frame_hist_scroll.pack(fill="both", expand=True, padx=4, pady=(0, 8))
 
     def _construir_formulario(self, parent):
-        ctk.CTkLabel(parent, text=T("clients_form_title"),
-                     font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
-                     text_color=COLOR_TEXT).pack(anchor="w", padx=14, pady=(14, 4))
+        ui.section_title(parent, T("clients_form_title")).pack(
+            anchor="w", padx=14, pady=(14, 4))
 
-        def lbl(t): ctk.CTkLabel(parent, text=t, text_color=COLOR_SUB,
-                                  font=ctk.CTkFont(size=11)).pack(anchor="w", padx=14, pady=(8, 2))
+        def lbl(t):
+            ui.section_label(parent, t).pack(anchor="w", padx=14, pady=(8, 2))
+
         def ent(ph=""):
-            e = ctk.CTkEntry(parent, placeholder_text=ph, fg_color="#252525",
-                             border_color=COLOR_BORDER, text_color=COLOR_TEXT,
-                             corner_radius=8, height=34)
+            e = ui.entry(parent, ph)
             e.pack(fill="x", padx=14)
             return e
 
@@ -119,19 +103,13 @@ class ClientsView(ctk.CTkFrame):
         lbl(T("clients_address")); self.ent_direccion = ent(T("clients_address_ph"))
         lbl(T("clients_notes")); self.ent_notas = ent(T("clients_notes_ph"))
 
-        ctk.CTkFrame(parent, height=1, fg_color=COLOR_BORDER).pack(fill="x", padx=14, pady=12)
+        ui.divider(parent).pack(fill="x", padx=14, pady=12)
 
-        ctk.CTkButton(parent, text=T("clients_save"),
-                      fg_color=COLOR_ACCENT, hover_color="#00CC7A",
-                      text_color="#000000",
-                      font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
-                      height=40, corner_radius=10,
-                      command=self._guardar_cliente).pack(fill="x", padx=14, pady=(0, 6))
+        ui.primary_button(parent, T("clients_save"), self._guardar_cliente,
+                          height=th.H_BTN_LG).pack(fill="x", padx=14, pady=(0, 6))
 
-        ctk.CTkButton(parent, text=T("clients_delete"),
-                      fg_color="#2D0000", hover_color="#3D0000",
-                      text_color=COLOR_RED, height=34, corner_radius=10,
-                      command=self._eliminar_cliente).pack(fill="x", padx=14, pady=(0, 14))
+        ui.danger_button(parent, T("clients_delete"), self._eliminar_cliente).pack(
+            fill="x", padx=14, pady=(0, 14))
 
     def _cargar_clientes(self):
         for w in self.frame_lista_scroll.winfo_children():
@@ -142,13 +120,20 @@ class ClientsView(ctk.CTkFrame):
     def _renderizar_clientes(self, clientes):
         for w in self.frame_lista_scroll.winfo_children():
             w.destroy()
+        if not clientes:
+            ui.empty_state(self.frame_lista_scroll, icono="👥",
+                           titulo=T("clients_list"),
+                           hint=T("clients_empty_hint"),
+                           cta_texto=T("clients_new"),
+                           cta_cmd=self._nuevo_cliente)
+            return
         for c in clientes:
             btn = ctk.CTkButton(
                 self.frame_lista_scroll,
                 text=c["nombre"],
-                fg_color="transparent", hover_color=COLOR_HOVER,
-                text_color=COLOR_TEXT, anchor="w", height=36,
-                font=ctk.CTkFont(size=12),
+                fg_color="transparent", hover_color=th.HOVER,
+                text_color=th.TEXT, anchor="w", height=36,
+                font=th.fuente(th.FONT_BODY),
                 command=lambda cid=c["id"]: self._seleccionar_cliente(cid)
             )
             btn.pack(fill="x", pady=1)
@@ -188,7 +173,7 @@ class ClientsView(ctk.CTkFrame):
                    spent=stats['total_gastado'],
                    profit=stats['ganancia_total'])
         )
-        
+
         inactivo = False
         if stats.get('ultimo_pedido'):
             try:
@@ -197,9 +182,11 @@ class ClientsView(ctk.CTkFrame):
                     inactivo = True
             except Exception:
                 pass
-                
+
         if inactivo:
-            self.frame_crm.pack(fill="x", padx=10, pady=(0, 8), before=self.frame_hist_scroll)
+            self.frame_crm.pack(fill="x", padx=10, pady=(0, th.GAP))
+            self.frame_hist_scroll.pack_forget()
+            self.frame_hist_scroll.pack(fill="both", expand=True, padx=4, pady=(0, th.GAP))
         else:
             self.frame_crm.pack_forget()
 
@@ -207,14 +194,21 @@ class ClientsView(ctk.CTkFrame):
             w.destroy()
         pedidos = db_manager.obtener_pedidos(filtro_cliente_id=cliente_id)
         for p in pedidos:
-            f = ctk.CTkFrame(self.frame_hist_scroll, fg_color="#252525", corner_radius=8)
-            f.pack(fill="x", pady=3, padx=2)
-            ctk.CTkLabel(f, text=f"{p.get('fecha','')}  –  {p.get('descripcion','')[:30]}",
-                         font=ctk.CTkFont(size=11), text_color=COLOR_TEXT,
-                         anchor="w").pack(side="left", padx=10, pady=6)
-            ctk.CTkLabel(f, text=f"${p.get('precio_venta',0):.2f}",
-                         font=ctk.CTkFont(size=11, weight="bold"), text_color=COLOR_ACCENT,
-                         anchor="e").pack(side="right", padx=10)
+            fila = ctk.CTkFrame(self.frame_hist_scroll, fg_color=th.SURFACE,
+                                corner_radius=th.RADIUS_CTRL)
+            fila.pack(fill="x", pady=3, padx=2)
+            fila.grid_columnconfigure(0, weight=1)
+            ctk.CTkLabel(fila, text=(p.get('descripcion') or "—")[:38],
+                         font=th.fuente(th.FONT_BODY, True), text_color=th.TEXT,
+                         anchor="w").grid(row=0, column=0, sticky="ew",
+                                          padx=(10, 6), pady=(8, 0))
+            ctk.CTkLabel(fila, text=p.get('fecha', ''), font=th.fuente(10),
+                         text_color=th.SUB_DIM, anchor="w").grid(
+                             row=1, column=0, sticky="ew", padx=(10, 6), pady=(0, 8))
+            ctk.CTkLabel(fila, text=f"${p.get('precio_venta', 0):.2f}",
+                         font=th.fuente(th.FONT_BODY, True), text_color=th.ACCENT,
+                         anchor="e").grid(row=0, column=1, rowspan=2, sticky="e",
+                                          padx=(0, 10))
 
     def _nuevo_cliente(self):
         self._cliente_seleccionado = None

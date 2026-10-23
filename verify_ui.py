@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import MagicMock
 
 # Base directory
-BASE_DIR = r"c:\Users\admin\.gemini\antigravity\scratch\PrintMoney"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
 
 # Mock modules that might cause issues in a head-less environment or require complex setup

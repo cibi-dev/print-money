@@ -4,61 +4,40 @@
 import customtkinter as ctk
 from datetime import datetime
 import db_manager
-from utils.i18n import T
+from ui import components as ui
+from ui.components import KPICard
+from ui import theme as th
+from utils.i18n import T, get_idioma
 
-# Colores (coherentes con main.py)
-COLOR_BG     = "#0F0F0F"
-COLOR_CARD   = "#1E1E1E"
-COLOR_ACCENT = "#00FF9D"
-COLOR_TEXT   = "#FFFFFF"
-COLOR_SUB    = "#888888"
-COLOR_RED    = "#FF4C4C"
-COLOR_BORDER = "#2D2D2D"
-COLOR_HOVER  = "#2A2A2A"
+try:
+    from babel.dates import format_date as _format_date
+except ImportError:
+    _format_date = None
+
+_GRAFICO = {"rejilla": "#2A2A2A", "ejes": "#333333"}
 
 
-class KPICard(ctk.CTkFrame):
-    """Tarjeta de KPI con título, valor y color de acento opcional."""
-
-    def __init__(self, master, titulo, valor, subtitulo="", acento=COLOR_ACCENT, **kwargs):
-        super().__init__(master, fg_color=COLOR_CARD, corner_radius=16, **kwargs)
-        self.configure(border_width=1, border_color=COLOR_BORDER)
-
-        ctk.CTkLabel(
-            self, text=titulo,
-            font=ctk.CTkFont(family="Segoe UI", size=12),
-            text_color=COLOR_SUB
-        ).pack(anchor="w", padx=18, pady=(16, 0))
-
-        self.lbl_valor = ctk.CTkLabel(
-            self, text=valor,
-            font=ctk.CTkFont(family="Segoe UI", size=28, weight="bold"),
-            text_color=acento
-        )
-        self.lbl_valor.pack(anchor="w", padx=18, pady=(2, 0))
-
-        if subtitulo:
-            ctk.CTkLabel(
-                self, text=subtitulo,
-                font=ctk.CTkFont(family="Segoe UI", size=11),
-                text_color=COLOR_SUB
-            ).pack(anchor="w", padx=18, pady=(0, 14))
-        else:
-            ctk.CTkFrame(self, height=14, fg_color="transparent").pack()
-
-    def actualizar(self, valor, acento=None):
-        """Actualiza el valor mostrado en la tarjeta."""
-        self.lbl_valor.configure(text=valor)
-        if acento:
-            self.lbl_valor.configure(text_color=acento)
+def _mes_actual():
+    ahora = datetime.now()
+    if _format_date:
+        try:
+            locale = "es_ES" if get_idioma() == "es" else "en_US"
+            texto = _format_date(ahora, "MMMM yyyy", locale=locale)
+            return texto[:1].upper() + texto[1:]
+        except Exception:
+            pass
+    return ahora.strftime("%B %Y").capitalize()
 
 
 class DashboardView(ctk.CTkFrame):
     """Vista principal del Dashboard."""
 
     def __init__(self, master, app, **kwargs):
-        super().__init__(master, fg_color=COLOR_BG, corner_radius=0, **kwargs)
+        super().__init__(master, fg_color=th.BG, corner_radius=0, **kwargs)
         self.app = app
+        self._firma_grafico = None
+        self._firma_pedidos = None
+        self._grafico_after = None
         self._construir_ui()
 
     def on_show(self):
@@ -68,104 +47,67 @@ class DashboardView(ctk.CTkFrame):
     def _construir_ui(self):
         """Construye el layout del dashboard."""
         # ── Encabezado ──
-        frame_header = ctk.CTkFrame(self, fg_color="transparent")
-        frame_header.pack(fill="x", padx=28, pady=(22, 0))
-
-        ahora = datetime.now()
-        mes_nombre = ahora.strftime("%B %Y").capitalize()
-        ctk.CTkLabel(
-            frame_header,
-            text=T("dash_title"),
-            font=ctk.CTkFont(family="Segoe UI", size=26, weight="bold"),
-            text_color=COLOR_TEXT
-        ).pack(side="left")
-
-        ctk.CTkLabel(
-            frame_header,
-            text=mes_nombre,
-            font=ctk.CTkFont(family="Segoe UI", size=13),
-            text_color=COLOR_SUB
-        ).pack(side="left", padx=12, pady=6)
+        mes_nombre = _mes_actual()
+        _frame_header, acciones = ui.page_header(self, T("dash_title"),
+                                                 subtitulo=mes_nombre)
 
         # Botón calculadora rápida
-        ctk.CTkButton(
-            frame_header,
-            text=T("dash_quick_calc"),
-            fg_color=COLOR_CARD,
-            hover_color=COLOR_HOVER,
-            text_color=COLOR_ACCENT,
-            corner_radius=10,
-            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-            command=self._abrir_calculadora,
-            width=170, height=36
-        ).pack(side="right")
+        ui.secondary_button(acciones, T("dash_quick_calc"), self._abrir_calculadora,
+                            width=180, text_color=th.ACCENT).pack(side="right")
 
         # ── Tarjetas KPI ──
         frame_kpis = ctk.CTkFrame(self, fg_color="transparent")
-        frame_kpis.pack(fill="x", padx=28, pady=18)
+        frame_kpis.pack(fill="x", padx=th.PAD_PAGE, pady=18)
 
         # Las tarjetas se acomodan en una fila responsive
         for col in range(5):
             frame_kpis.columnconfigure(col, weight=1, uniform="kpi")
 
         self.card_ingresos = KPICard(frame_kpis, T("dash_income_month"), "$0.00",
-                                     subtitulo=T("dash_income_sub"), acento=COLOR_TEXT)
+                                     subtitulo=T("dash_income_sub"), acento=th.TEXT)
         self.card_ingresos.grid(row=0, column=0, padx=6, pady=0, sticky="nsew")
 
         self.card_gastos = KPICard(frame_kpis, T("dash_expenses_month"), "$0.00",
-                                   subtitulo=T("dash_expenses_sub"), acento=COLOR_RED)
+                                   subtitulo=T("dash_expenses_sub"), acento=th.RED)
         self.card_gastos.grid(row=0, column=1, padx=6, pady=0, sticky="nsew")
 
         self.card_ganancia = KPICard(frame_kpis, T("dash_profit"), "$0.00",
-                                     subtitulo=T("dash_profit_sub"), acento=COLOR_ACCENT)
+                                     subtitulo=T("dash_profit_sub"), acento=th.ACCENT)
         self.card_ganancia.grid(row=0, column=2, padx=6, pady=0, sticky="nsew")
 
         self.card_margen = KPICard(frame_kpis, T("dash_margin"), "0%",
-                                   subtitulo=T("dash_margin_sub"), acento=COLOR_TEXT)
+                                   subtitulo=T("dash_margin_sub"), acento=th.TEXT)
         self.card_margen.grid(row=0, column=3, padx=6, pady=0, sticky="nsew")
 
         self.card_pendientes = KPICard(frame_kpis, T("dash_pending"), "0",
-                                       subtitulo=T("dash_pending_sub"), acento="#FFD166")
+                                       subtitulo=T("dash_pending_sub"), acento=th.YELLOW)
         self.card_pendientes.grid(row=0, column=4, padx=6, pady=0, sticky="nsew")
 
         # ── Área inferior: gráfico + pedidos recientes ──
         frame_inferior = ctk.CTkFrame(self, fg_color="transparent")
-        frame_inferior.pack(fill="both", expand=True, padx=28, pady=(0, 20))
+        frame_inferior.pack(fill="both", expand=True, padx=th.PAD_PAGE, pady=(0, 20))
         frame_inferior.columnconfigure(0, weight=3)
         frame_inferior.columnconfigure(1, weight=1)
         frame_inferior.rowconfigure(0, weight=1)
 
         # Gráfico de ganancias
-        frame_grafico = ctk.CTkFrame(frame_inferior, fg_color=COLOR_CARD, corner_radius=16,
-                                     border_width=1, border_color=COLOR_BORDER)
-        frame_grafico.grid(row=0, column=0, padx=(0, 8), sticky="nsew")
+        frame_grafico = ui.card(frame_inferior)
+        frame_grafico.grid(row=0, column=0, padx=(0, th.GAP), sticky="nsew")
 
-        ctk.CTkLabel(
-            frame_grafico,
-            text=T("dash_chart_title"),
-            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
-            text_color=COLOR_TEXT
-        ).pack(anchor="w", padx=18, pady=(14, 4))
+        ui.section_title(frame_grafico, T("dash_chart_title")).pack(
+            anchor="w", padx=18, pady=(14, 4))
 
         self.frame_canvas = ctk.CTkFrame(frame_grafico, fg_color="transparent")
         self.frame_canvas.pack(fill="both", expand=True, padx=10, pady=(0, 10))
 
         # Panel lateral: pedidos recientes
-        frame_recientes = ctk.CTkFrame(frame_inferior, fg_color=COLOR_CARD, corner_radius=16,
-                                       border_width=1, border_color=COLOR_BORDER)
+        frame_recientes = ui.card(frame_inferior)
         frame_recientes.grid(row=0, column=1, sticky="nsew")
 
-        ctk.CTkLabel(
-            frame_recientes,
-            text=T("dash_recent_orders"),
-            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
-            text_color=COLOR_TEXT
-        ).pack(anchor="w", padx=14, pady=(14, 8))
+        ui.section_title(frame_recientes, T("dash_recent_orders")).pack(
+            anchor="w", padx=16, pady=(14, 8))
 
-        self.frame_pedidos_scroll = ctk.CTkScrollableFrame(
-            frame_recientes, fg_color="transparent",
-            scrollbar_button_color=COLOR_BORDER
-        )
+        self.frame_pedidos_scroll = ui.scrollable(frame_recientes)
         self.frame_pedidos_scroll.pack(fill="both", expand=True, padx=6, pady=(0, 10))
 
     def _cargar_datos(self):
@@ -177,26 +119,47 @@ class DashboardView(ctk.CTkFrame):
         self.card_ingresos.actualizar(f"${stats['ingresos']:,.2f}")
         self.card_gastos.actualizar(f"${stats['gastos']:,.2f}")
         ganancia = stats['ganancia_neta']
-        color_gan = COLOR_ACCENT if ganancia >= 0 else COLOR_RED
+        color_gan = th.ACCENT if ganancia >= 0 else th.RED
         self.card_ganancia.actualizar(f"${ganancia:,.2f}", acento=color_gan)
-        self.card_margen.actualizar(f"{stats['margen']:.1f}%")
+        self.card_margen.actualizar(f"{stats['margen']:.1f}%",
+                                    acento=th.TEXT if stats['margen'] >= 0 else th.RED)
         self.card_pendientes.actualizar(str(stats['pendientes']))
 
-        # Gráfico
-        self._dibujar_grafico()
+        # Gráfico: se difiere para que la ventana aparezca antes de importar
+        # matplotlib y dibujar. En el arranque, navegar("dashboard") se ejecuta
+        # antes del primer frame.
+        self._programar_grafico()
 
         # Pedidos recientes
         self._cargar_pedidos_recientes()
 
+    def _programar_grafico(self):
+        """Programa el dibujo del gráfico para después del primer pintado."""
+        if self._grafico_after is not None:
+            try:
+                self.after_cancel(self._grafico_after)
+            except Exception:
+                pass
+        self._grafico_after = self.after(60, self._renderizar_grafico)
+
+    def _renderizar_grafico(self):
+        self._grafico_after = None
+        self._dibujar_grafico()
+
+    def destroy(self):
+        if self._grafico_after is not None:
+            try:
+                self.after_cancel(self._grafico_after)
+            except Exception:
+                pass
+            self._grafico_after = None
+        super().destroy()
+
     def _dibujar_grafico(self):
         """Dibuja el gráfico de líneas de ganancias de los últimos 30 días con Matplotlib."""
-        # Lazy import de matplotlib (pesado)
-        import matplotlib.pyplot as plt
-        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-
         datos = db_manager.obtener_ganancia_ultimos_dias(30)
         firma = tuple((d["fecha"], d["ganancia"]) for d in datos)
-        if firma == getattr(self, "_firma_grafico", None):
+        if firma == self._firma_grafico:
             return
         self._firma_grafico = firma
 
@@ -204,67 +167,124 @@ class DashboardView(ctk.CTkFrame):
         for w in self.frame_canvas.winfo_children():
             w.destroy()
 
-        fechas = [d["fecha"] for d in datos]
+        if not datos:
+            ui.empty_state(self.frame_canvas, "📈", T("dash_no_data"),
+                           hint=T("dash_no_data_hint"))
+            return
+
+        # Lazy import de matplotlib (pesado): solo cuando hay datos que pintar
+        import matplotlib.dates as mdates
+        import matplotlib.pyplot as plt
+        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+
+        fechas = [datetime.strptime(d["fecha"], "%Y-%m-%d").date() for d in datos]
         ganancias = [d["ganancia"] for d in datos]
 
-        fig, ax = plt.subplots(figsize=(7, 3), facecolor="#1E1E1E")
-        ax.set_facecolor("#1E1E1E")
+        estilo = {
+            "font.family": "Segoe UI",
+            "font.size": 8,
+            "axes.labelsize": 8,
+            "axes.titlesize": 9,
+            "xtick.labelsize": 8,
+            "ytick.labelsize": 8,
+            "axes.edgecolor": _GRAFICO["ejes"],
+            "axes.labelcolor": th.SUB,
+            "text.color": th.SUB,
+            "xtick.color": th.SUB,
+            "ytick.color": th.SUB,
+            "figure.facecolor": th.CARD,
+            "axes.facecolor": th.CARD,
+            "grid.color": _GRAFICO["rejilla"],
+            "grid.alpha": 0.6,
+        }
 
-        if fechas:
-            ax.plot(fechas, ganancias, color=COLOR_ACCENT, linewidth=2.5, marker="o",
-                    markersize=5, markerfacecolor="#0F0F0F")
-            ax.fill_between(fechas, ganancias, alpha=0.15, color=COLOR_ACCENT)
-        else:
-            ax.text(0.5, 0.5, T("dash_no_data"), ha="center", va="center",
-                    color=COLOR_SUB, transform=ax.transAxes, fontsize=12)
+        with plt.rc_context(estilo):
+            fig, ax = plt.subplots(figsize=(7, 3))
+            fig.patch.set_facecolor(th.CARD)
+            ax.set_facecolor(th.CARD)
 
-        # Estilo del gráfico
-        ax.tick_params(axis='x', rotation=45, labelsize=7, colors="#888888")
-        ax.tick_params(axis='y', labelsize=8, colors="#888888")
-        ax.spines['top'].set_visible(False)
-        ax.spines['right'].set_visible(False)
-        ax.spines['left'].set_color("#333333")
-        ax.spines['bottom'].set_color("#333333")
-        ax.yaxis.label.set_color("#888888")
-        for label in ax.get_xticklabels():
-            label.set_color("#888888")
-        plt.tight_layout(pad=1.0)
+            ax.plot(fechas, ganancias, color=th.ACCENT, linewidth=2.2, marker="o",
+                    markersize=4, markerfacecolor=th.BG, markeredgecolor=th.ACCENT)
+            ax.fill_between(fechas, ganancias, 0, alpha=0.15, color=th.ACCENT,
+                            linewidth=0)
 
-        # Embeber en CTk
-        canvas = FigureCanvasTkAgg(fig, master=self.frame_canvas)
-        canvas.draw()
-        canvas.get_tk_widget().pack(fill="both", expand=True)
-        plt.close(fig)
+            ax.set_axisbelow(True)
+            ax.grid(axis="y", color=_GRAFICO["rejilla"], alpha=0.6, linewidth=0.8)
+            ax.spines["top"].set_visible(False)
+            ax.spines["right"].set_visible(False)
+            ax.spines["left"].set_color(_GRAFICO["ejes"])
+            ax.spines["bottom"].set_color(_GRAFICO["ejes"])
+            ax.tick_params(axis="both", labelsize=8, colors=th.SUB, length=0)
+            ax.xaxis.set_major_formatter(mdates.DateFormatter("%d/%m"))
+            ax.xaxis.set_major_locator(mdates.AutoDateLocator(minticks=3, maxticks=8))
+            ax.margins(x=0.01)
+            fig.tight_layout(pad=0.8)
+
+            canvas = FigureCanvasTkAgg(fig, master=self.frame_canvas)
+            canvas.draw()
+            canvas.get_tk_widget().pack(fill="both", expand=True)
+            plt.close(fig)
 
     def _cargar_pedidos_recientes(self):
         """Muestra los últimos 8 pedidos en el panel lateral."""
         # LIMIT 8 en SQL en vez de traer todos los pedidos y quedarse con los
         # 8 primeros en Python.
         pedidos = db_manager.obtener_pedidos(limite=8)
-        firma = tuple((p["id"], p.get("fecha"), p.get("precio_venta"), p.get("estado")) for p in pedidos)
-        if firma == getattr(self, "_firma_pedidos", None):
+        firma = tuple((p["id"], p.get("fecha"), p.get("precio_venta"),
+                       p.get("estado"), p.get("descripcion")) for p in pedidos)
+        if firma == self._firma_pedidos:
             return
         self._firma_pedidos = firma
 
         for widget in self.frame_pedidos_scroll.winfo_children():
             widget.destroy()
+
+        if not pedidos:
+            ui.empty_state(self.frame_pedidos_scroll, "🧾", T("dash_no_recent"),
+                           hint=T("dash_no_recent_hint"), empaquetar=True)
+            return
+
         for p in pedidos:
-            frame_p = ctk.CTkFrame(self.frame_pedidos_scroll, fg_color="#252525", corner_radius=8)
-            frame_p.pack(fill="x", pady=3, padx=2)
+            fila = ctk.CTkFrame(self.frame_pedidos_scroll, fg_color=th.SURFACE,
+                                corner_radius=th.RADIUS_INPUT)
+            fila.pack(fill="x", padx=2, pady=3)
 
-            ctk.CTkLabel(
-                frame_p,
-                text=f"{p.get('cliente_nombre','—') or '—'}",
-                font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-                text_color=COLOR_TEXT
-            ).pack(anchor="w", padx=10, pady=(6, 0))
+            cabecera = ctk.CTkFrame(fila, fg_color="transparent")
+            cabecera.pack(fill="x", padx=12, pady=(8, 0))
+            ctk.CTkLabel(cabecera, text=f"{p.get('cliente_nombre') or '—'}",
+                         font=th.fuente(th.FONT_BODY, True), text_color=th.TEXT,
+                         anchor="w").pack(side="left")
+            ctk.CTkLabel(cabecera, text=f"${(p.get('precio_venta') or 0):,.2f}",
+                         font=th.fuente(th.FONT_BODY, True), text_color=th.ACCENT,
+                         anchor="e").pack(side="right")
 
-            ctk.CTkLabel(
-                frame_p,
-                text=f"${p.get('precio_venta', 0):.2f}  ·  {p.get('fecha','')}",
-                font=ctk.CTkFont(family="Segoe UI", size=10),
-                text_color=COLOR_SUB
-            ).pack(anchor="w", padx=10, pady=(0, 6))
+            pie = ctk.CTkFrame(fila, fg_color="transparent")
+            pie.pack(fill="x", padx=12, pady=(2, 8))
+            descripcion = (p.get("descripcion") or "").strip() or "—"
+            if len(descripcion) > 26:
+                descripcion = descripcion[:25] + "…"
+            ctk.CTkLabel(pie, text=descripcion, font=th.fuente(10),
+                         text_color=th.SUB, anchor="w").pack(side="left")
+            ui.status_pill(pie, p.get("estado") or "", width=78).pack(side="right")
+
+            for contenedor in (fila, cabecera, pie):
+                for widget in [contenedor] + contenedor.winfo_children():
+                    widget.bind("<Button-1>",
+                                lambda _e, pid=p["id"]: self._ir_a_pedido(pid))
+
+    def _ir_a_pedido(self, pedido_id):
+        """Navega a Pedidos y, si la vista ya existe, la deja con ese pedido abierto."""
+        navegar = getattr(self.app, "navegar", None)
+        if not callable(navegar):
+            return
+        navegar("pedidos")
+        cache = getattr(self.app, "_cache_vistas", None)
+        vista = cache.get("pedidos") if isinstance(cache, dict) else None
+        if vista is not None and hasattr(vista, "_seleccionar_pedido"):
+            try:
+                vista._seleccionar_pedido(pedido_id)
+            except Exception:
+                pass
 
     def _abrir_calculadora(self):
         """Abre la ventana flotante de la calculadora."""

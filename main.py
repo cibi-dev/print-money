@@ -14,28 +14,29 @@ try:
 except Exception:
     pass
 
-# ── Asegurar que el directorio del proyecto esté en el path ──
-if getattr(sys, 'frozen', False):
-    # Si somos un ejecutable de PyInstaller, el directorio base real donde 
-    # residen los datos de usuario (config, bd) es donde está el .exe.
-    # sys._MEIPASS es el directorio temporal para assets empaquetados.
-    BASE_DIR = os.path.dirname(sys.executable)
-    ASSETS_DIR = os.path.join(sys._MEIPASS, "assets")
-else:
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    ASSETS_DIR = os.path.join(BASE_DIR, "assets")
+from utils import paths
 
+# ── Asegurar que el directorio del proyecto esté en el path ──
+BASE_DIR = paths.APP_DIR
+ASSETS_DIR = paths.ASSETS_DIR
 sys.path.insert(0, BASE_DIR)
 
-# ── Configurar logging estructurado ──
+# ── Configurar logging estructurado en la carpeta de datos ──
 import logging
-LOG_PATH = os.path.join(BASE_DIR, "printmoney.log")
-logging.basicConfig(
-    filename=LOG_PATH,
-    level=logging.INFO,
-    encoding="utf-8",
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-)
+LOG_PATH = paths.LOG_PATH
+try:
+    paths.asegurar_dirs()
+    logging.basicConfig(
+        filename=LOG_PATH,
+        level=logging.INFO,
+        encoding="utf-8",
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    )
+except OSError:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    )
 
 from tkinter import messagebox
 import customtkinter as ctk
@@ -45,8 +46,10 @@ from datetime import datetime
 from PIL import Image, ImageTk
 
 import db_manager
+from utils.atomic_io import escribir_json_atomico
 from utils.notifications import mostrar_notificacion
 from utils.i18n import T, set_idioma, get_idioma
+from ui import theme as th
 
 # ── Importar vistas de la UI (Lazy loading) ──
 # Se movieron al método navegar() para mejorar el tiempo de inicio
@@ -70,7 +73,7 @@ COLOR_YELLOW   = "#FFD166"  # Advertencias
 
 def cargar_config():
     """Carga la configuración desde config.json. Si no existe, crea una por defecto."""
-    ruta = os.path.join(BASE_DIR, "config.json")
+    ruta = paths.CONFIG_PATH
     if not os.path.exists(ruta):
         default_config = {
             "idioma": "es",
@@ -79,8 +82,7 @@ def cargar_config():
             "notificaciones_activadas": True
         }
         try:
-            with open(ruta, "w", encoding="utf-8") as f:
-                json.dump(default_config, f, indent=4, ensure_ascii=False)
+            escribir_json_atomico(ruta, default_config)
         except Exception:
             pass
         return default_config
@@ -94,9 +96,42 @@ def cargar_config():
 
 def guardar_config(config):
     """Guarda el diccionario de configuración en config.json."""
-    ruta = os.path.join(BASE_DIR, "config.json")
-    with open(ruta, "w", encoding="utf-8") as f:
-        json.dump(config, f, indent=4, ensure_ascii=False)
+    escribir_json_atomico(paths.CONFIG_PATH, config)
+
+
+def _crear_mutex_instancia(nombre="PrintMoney.V1.SingleInstance"):
+    """Devuelve el handle del mutex o None si ya hay otra instancia abierta."""
+    if os.name != "nt":
+        return 0
+    try:
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CreateMutexW.argtypes = [ctypes.c_void_p, ctypes.c_bool,
+                                          ctypes.c_wchar_p]
+        kernel32.CreateMutexW.restype = ctypes.c_void_p
+        kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+        kernel32.CloseHandle.restype = ctypes.c_bool
+
+        handle = kernel32.CreateMutexW(None, False, nombre)
+        if not handle:
+            return 0
+        if ctypes.get_last_error() == 183:  # ERROR_ALREADY_EXISTS
+            kernel32.CloseHandle(handle)
+            return None
+        return handle
+    except Exception:
+        return 0
+
+
+def _mostrar_mensaje(texto, titulo=None, icono=0x00000040):
+    """Muestra un MessageBox nativo sin depender de que exista una ventana Tk."""
+    try:
+        user32 = ctypes.windll.user32
+        user32.MessageBoxW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p,
+                                        ctypes.c_wchar_p, ctypes.c_uint]
+        user32.MessageBoxW.restype = ctypes.c_int
+        user32.MessageBoxW(0, texto, titulo or T("app_title"), icono)
+    except Exception:
+        pass
 
 
 class SidebarButton(ctk.CTkButton):
@@ -110,12 +145,12 @@ class SidebarButton(ctk.CTkButton):
             text=label,
             command=command,
             anchor="w",
-            corner_radius=10,
+            corner_radius=th.RADIUS_CTRL,
             height=44,
             fg_color="transparent",
-            hover_color=COLOR_HOVER,
-            text_color=COLOR_TEXT,
-            font=ctk.CTkFont(family="Segoe UI", size=14),
+            hover_color=th.HOVER,
+            text_color=th.TEXT,
+            font=th.fuente(14),
             **kwargs
         )
         self._is_active = False
@@ -126,16 +161,42 @@ class SidebarButton(ctk.CTkButton):
         self._is_active = active
         if active:
             self.configure(
-                fg_color=COLOR_HOVER,
-                text_color=COLOR_ACCENT,
-                font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold")
+                fg_color=th.HOVER,
+                text_color=th.ACCENT,
+                font=th.fuente(14, True)
             )
         else:
             self.configure(
                 fg_color="transparent",
-                text_color=COLOR_TEXT,
-                font=ctk.CTkFont(family="Segoe UI", size=14)
+                text_color=th.TEXT,
+                font=th.fuente(14)
             )
+
+
+class SidebarItem(ctk.CTkFrame):
+    """Elemento de navegación con indicador lateral del estado activo."""
+
+    def __init__(self, master, text, icon=None, command=None, **kwargs):
+        super().__init__(master, fg_color="transparent", corner_radius=0)
+        self.grid_columnconfigure(1, weight=1)
+        self.indicador = ctk.CTkFrame(
+            self, width=3, height=24, fg_color=th.ACCENT, corner_radius=2
+        )
+        self.indicador.grid(row=0, column=0, sticky="ns", padx=(0, 4), pady=6)
+        self.boton = SidebarButton(
+            self, text=text, icon=icon, command=command, **kwargs
+        )
+        self.boton.grid(row=0, column=1, sticky="ew")
+        self.set_active(False)
+
+    def set_active(self, active: bool):
+        """Muestra u oculta el indicador y delega el estilo en el botón."""
+        if active:
+            self.indicador.grid()
+        else:
+            self.indicador.grid_remove()
+        self.boton.set_active(active)
+
 
 
 class TutorialDialog(ctk.CTkToplevel):
@@ -293,6 +354,7 @@ class PrintMoneyApp(ctk.CTk):
     """Aplicación principal PrintMoney con barra lateral y navegación entre vistas."""
 
     def __init__(self):
+        paths.migrar_datos_legados()
         # className debe coincidir exactamente con el AppUserModelID para agrupación perfecta
         super().__init__(className="PrintMoney.V1.Official.Release")
 
@@ -309,11 +371,13 @@ class PrintMoneyApp(ctk.CTk):
         self.geometry("1280x780")
         self.minsize(900, 600)
         self.configure(fg_color=COLOR_BG)
-        try:
-            self.state("zoomed")
-        except Exception:
-            pass
-        self.after(50, lambda: (self.lift(), self.focus_force()))
+
+        # Desactivar la manipulación de título de CTk (evita withdraw/deiconify que causa parpadeo)
+        ctk.CTk._deactivate_windows_window_header_manipulation = True
+
+        # Maximizar ANTES de mostrar la ventana (evita resize visible)
+        self.withdraw()
+        self.after(0, lambda: self._maximizar_sin_parpadeo())
 
         # Icono de la app (Nuclear Fix: Usar el ICO multi-tamaño)
         ico_path = os.path.join(ASSETS_DIR, "app_icon.ico")
@@ -365,6 +429,35 @@ class PrintMoneyApp(ctk.CTk):
         if self.config_data.get("primera_ejecucion", True):
             self.after(800, self._mostrar_tutorial)
 
+    def _maximizar_sin_parpadeo(self):
+        """Maximiza la ventana sin el ciclo withdraw/deiconify que causa parpadeo."""
+        import ctypes
+        try:
+            # Establecer título oscuro ANTES de maximizar (sin withdraw)
+            hwnd = ctypes.windll.user32.GetParent(self.winfo_id())
+            DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+            DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 = 19
+            if ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE,
+                ctypes.byref(ctypes.c_int(1)),
+                ctypes.sizeof(ctypes.c_int(1))
+            ) != 0:
+                ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                    hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1,
+                    ctypes.byref(ctypes.c_int(1)),
+                    ctypes.sizeof(ctypes.c_int(1))
+                )
+        except Exception:
+            pass
+        try:
+            self.state("zoomed")
+        except Exception:
+            pass
+        # Mostrar la ventana ya maximizada (sin ciclo withdraw→deiconify de CTk)
+        self.deiconify()
+        self.lift()
+        self.focus_force()
+
     def _on_tk_exception(self, exc, val, tb):
         import traceback
         logging.error("Excepción no capturada en callback de UI:\n%s", "".join(traceback.format_exception(exc, val, tb)))
@@ -383,6 +476,7 @@ class PrintMoneyApp(ctk.CTk):
         self.iconos = {
             "home":       "🏠",
             "orders":     "📦",
+            "quotes":     "🧾",
             "expenses":   "💸",
             "inventory":  "🧵",
             "catalog":    "📖",
@@ -415,9 +509,22 @@ class PrintMoneyApp(ctk.CTk):
 
     def _construir_sidebar_contenido(self):
         """Construye el contenido interno de la sidebar (se puede reconstruir al cambiar idioma)."""
-        # Limpiar contenido actual de la sidebar
         for w in self.sidebar.winfo_children():
             w.destroy()
+
+        self.botones_nav = {}
+
+        # Configuración fija al fondo (se empaqueta primero para reservar espacio)
+        frame_bottom = ctk.CTkFrame(self.sidebar, fg_color="transparent")
+        frame_bottom.pack(side="bottom", fill="x", padx=12, pady=14)
+        btn_settings = SidebarItem(
+            frame_bottom,
+            text=T("sidebar_settings"),
+            icon=self.iconos.get("settings"),
+            command=lambda: self.navegar("configuracion")
+        )
+        btn_settings.pack(fill="x")
+        self.botones_nav["configuracion"] = btn_settings
 
         # Logo / nombre de la app
         frame_logo = ctk.CTkFrame(self.sidebar, fg_color="transparent")
@@ -426,23 +533,30 @@ class PrintMoneyApp(ctk.CTk):
         ctk.CTkLabel(
             frame_logo,
             text="🖨️  PrintMoney",
-            font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
-            text_color=COLOR_ACCENT
+            font=th.fuente(18, True),
+            text_color=th.ACCENT
         ).pack(anchor="w")
 
         ctk.CTkLabel(
             frame_logo,
             text=T("app_subtitle"),
-            font=ctk.CTkFont(family="Segoe UI", size=10),
-            text_color=COLOR_SUBTEXT
+            font=th.fuente(10),
+            text_color=th.SUB
         ).pack(anchor="w")
 
-        ctk.CTkFrame(self.sidebar, height=1, fg_color=COLOR_BORDER).pack(fill="x", padx=12, pady=12)
+        ctk.CTkFrame(self.sidebar, height=1, fg_color=th.BORDER).pack(
+            fill="x", padx=12, pady=10)
 
-        # ── Botones de navegación ──
+        nav_scroll = ctk.CTkScrollableFrame(
+            self.sidebar, fg_color="transparent", width=196,
+            scrollbar_button_color=th.SCROLL_BUTTON,
+            scrollbar_button_hover_color=th.SCROLL_HOVER)
+        nav_scroll.pack(fill="both", expand=True, pady=0)
+
         nav_items = [
             ("dashboard",   T("sidebar_dashboard"),    "home"),
             ("pedidos",     T("sidebar_orders"),       "orders"),
+            ("cotizaciones", T("sidebar_quotes"),      "quotes"),
             ("gastos",      T("sidebar_expenses"),     "expenses"),
             ("inventario",  T("sidebar_inventory"),    "inventory"),
             ("catalogo",    T("sidebar_catalog"),      "catalog"),
@@ -451,41 +565,27 @@ class PrintMoneyApp(ctk.CTk):
             ("calendario",  T("sidebar_calendar"),     "calendar"),
         ]
 
-        self.botones_nav = {}
         for key, label, icono in nav_items:
-            btn = SidebarButton(
-                self.sidebar,
+            btn = SidebarItem(
+                nav_scroll,
                 text=label,
                 icon=self.iconos.get(icono),
                 command=lambda k=key: self.navegar(k)
             )
-            btn.pack(fill="x", padx=12, pady=2)
+            btn.pack(fill="x", padx=8, pady=1)
             self.botones_nav[key] = btn
 
-        ctk.CTkFrame(self.sidebar, height=1, fg_color=COLOR_BORDER).pack(fill="x", padx=12, pady=12)
+        ctk.CTkFrame(nav_scroll, height=1, fg_color=th.BORDER).pack(
+            fill="x", padx=8, pady=8)
 
-        # Botón calculadora (flotante)
-        btn_calc = SidebarButton(
-            self.sidebar,
+        btn_calc = SidebarItem(
+            nav_scroll,
             text=T("sidebar_calculator"),
             icon=self.iconos.get("calculator"),
             command=self._abrir_calculadora
         )
-        btn_calc.pack(fill="x", padx=12, pady=2)
+        btn_calc.pack(fill="x", padx=8, pady=(1, 10))
         self.botones_nav["calculadora"] = btn_calc
-
-        # Separador + configuración (al final)
-        frame_bottom = ctk.CTkFrame(self.sidebar, fg_color="transparent")
-        frame_bottom.pack(side="bottom", fill="x", padx=12, pady=16)
-
-        btn_settings = SidebarButton(
-            frame_bottom,
-            text=T("sidebar_settings"),
-            icon=self.iconos.get("settings"),
-            command=lambda: self.navegar("configuracion")
-        )
-        btn_settings.pack(fill="x")
-        self.botones_nav["configuracion"] = btn_settings
 
     def _aplicar_icono(self):
         """Aplica el ícono de la aplicación de la forma más agresiva posible (Nivel de Clase)."""
@@ -558,6 +658,8 @@ class PrintMoneyApp(ctk.CTk):
             from ui.dashboard import DashboardView as cls
         elif destino == "pedidos":
             from ui.orders import OrdersView as cls
+        elif destino == "cotizaciones":
+            from ui.quotes import QuotesView as cls
         elif destino == "gastos":
             from ui.expenses import ExpensesView as cls
         elif destino == "inventario":
@@ -670,5 +772,26 @@ App = PrintMoneyApp
 
 
 if __name__ == "__main__":
+    _mutex = _crear_mutex_instancia()
+    if _mutex is None:
+        _mostrar_mensaje(T("app_already_running"))
+        sys.exit(0)
+    try:
+        paths.migrar_datos_legados()
+    except Exception as exc:
+        import traceback
+        for destino in (os.path.join(paths.APP_DIR, "printmoney_startup_error.log"),
+                        os.path.join(os.environ.get("TEMP", paths.APP_DIR),
+                                     "printmoney_startup_error.log")):
+            try:
+                with open(destino, "w", encoding="utf-8") as f:
+                    f.write(traceback.format_exc())
+                break
+            except OSError:
+                continue
+        _mostrar_mensaje(T("app_migration_error", path=paths.DATA_DIR,
+                           error=str(exc)), icono=0x00000010)
+        sys.exit(1)
     app = PrintMoneyApp()
+    app._mutex_instancia = _mutex
     app.mainloop()
