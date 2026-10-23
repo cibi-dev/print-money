@@ -9,6 +9,7 @@ from utils.pdf_invoice import generar_factura_pdf
 from utils.i18n import T
 from utils.labels import mapa_por_etiqueta
 import json, os
+import threading
 
 import sys
 if getattr(sys, 'frozen', False):
@@ -567,14 +568,26 @@ class OrdersView(ctk.CTkFrame):
             initialfile=f"Factura_{self._pedido_editando}.pdf"
         )
         if ruta:
-            config = cargar_config()
-            try:
-                generar_factura_pdf(pedido, config, ruta)
-            except Exception as ex:
-                messagebox.showerror(T("error"), str(ex), parent=self.winfo_toplevel())
-                return
-            db_manager.marcar_factura_generada(self._pedido_editando)
-            messagebox.showinfo(T("success"), T("orders_invoice_ok", path=ruta), parent=self.winfo_toplevel())
+            config = getattr(self.app, "config_data", None) or cargar_config()
+            pedido_id = self._pedido_editando
+
+            def _worker():
+                try:
+                    generar_factura_pdf(pedido, config, ruta)
+                    db_manager.marcar_factura_generada(pedido_id)
+                    self.after(0, lambda: messagebox.showinfo(
+                        T("success"),
+                        T("orders_invoice_ok", path=ruta),
+                        parent=self.winfo_toplevel()
+                    ))
+                except Exception as ex:
+                    self.after(0, lambda err=str(ex): messagebox.showerror(
+                        T("error"),
+                        err,
+                        parent=self.winfo_toplevel()
+                    ))
+
+            threading.Thread(target=_worker, daemon=True).start()
 
     def prellenar(self, datos: dict):
         """Pre-llena el formulario con datos de la calculadora."""

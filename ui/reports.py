@@ -1,6 +1,7 @@
 # ui/reports.py – Vista de Reportes
 # Genera gráficos de línea, pastel y barras. Exporta a Excel y PDF.
 
+import threading
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
 from datetime import datetime, date
@@ -243,11 +244,24 @@ class ReportsView(ctk.CTkFrame):
             initialfile=f"reporte_{self.combo_año.get()}.xlsx"
         )
         if ruta:
-            try:
-                exportar_excel(ruta, int(self.combo_año.get()))
-                messagebox.showinfo(T("reports_export_ok"), T("reports_excel_ok", path=ruta))
-            except Exception as e:
-                messagebox.showerror(T("error"), str(e))
+            año = int(self.combo_año.get())
+
+            def _worker():
+                try:
+                    exportar_excel(ruta, año)
+                    self.after(0, lambda: messagebox.showinfo(
+                        T("reports_export_ok"),
+                        T("reports_excel_ok", path=ruta),
+                        parent=self.winfo_toplevel()
+                    ))
+                except Exception as e:
+                    self.after(0, lambda err=str(e): messagebox.showerror(
+                        T("error"),
+                        err,
+                        parent=self.winfo_toplevel()
+                    ))
+
+            threading.Thread(target=_worker, daemon=True).start()
 
     def _exportar_pdf(self):
         ruta = filedialog.asksaveasfilename(
@@ -256,8 +270,21 @@ class ReportsView(ctk.CTkFrame):
             initialfile=f"reporte_{self.combo_año.get()}.pdf"
         )
         if ruta:
-            try:
-                exportar_pdf_reporte(ruta, int(self.combo_año.get()))
-                messagebox.showinfo(T("reports_export_ok"), T("reports_pdf_ok", path=ruta))
-            except Exception as e:
-                messagebox.showerror(T("error"), str(e))
+            año = int(self.combo_año.get())
+
+            def _worker():
+                try:
+                    exportar_pdf_reporte(ruta, año)
+                    self.after(0, lambda: messagebox.showinfo(
+                        T("reports_export_ok"),
+                        T("reports_pdf_ok", path=ruta),
+                        parent=self.winfo_toplevel()
+                    ))
+                except Exception as e:
+                    self.after(0, lambda err=str(e): messagebox.showerror(
+                        T("error"),
+                        err,
+                        parent=self.winfo_toplevel()
+                    ))
+
+            threading.Thread(target=_worker, daemon=True).start()
