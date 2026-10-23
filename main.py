@@ -27,7 +27,17 @@ else:
 
 sys.path.insert(0, BASE_DIR)
 
+# ── Configurar logging estructurado ──
+import logging
+LOG_PATH = os.path.join(BASE_DIR, "printmoney.log")
+logging.basicConfig(
+    filename=LOG_PATH,
+    level=logging.INFO,
+    encoding="utf-8",
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+)
 
+from tkinter import messagebox
 import customtkinter as ctk
 import json
 import threading
@@ -287,6 +297,9 @@ class PrintMoneyApp(ctk.CTk):
         # className debe coincidir exactamente con el AppUserModelID para agrupación perfecta
         super().__init__(className="PrintMoney.V1.Official.Release")
 
+        # ── Captura global de excepciones de UI en Tkinter ──
+        self.report_callback_exception = self._on_tk_exception
+
         # ── Cargar configuración ──
         self.config_data = cargar_config()
         self.idioma = self.config_data.get("idioma", "es")
@@ -353,6 +366,18 @@ class PrintMoneyApp(ctk.CTk):
         # ── Tutorial de primera ejecución ──
         if self.config_data.get("primera_ejecucion", True):
             self.after(800, self._mostrar_tutorial)
+
+    def _on_tk_exception(self, exc, val, tb):
+        import traceback
+        logging.error("Excepción no capturada en callback de UI:\n%s", "".join(traceback.format_exception(exc, val, tb)))
+        try:
+            messagebox.showerror(
+                T("error"),
+                f"Ocurrió un error inesperado:\n{val}\n\nLos detalles técnicos se guardaron en 'printmoney.log'.",
+                parent=self
+            )
+        except Exception:
+            pass
 
     def _cargar_iconos(self):
         """Define los iconos emoji para cada sección de la barra lateral."""
@@ -684,6 +709,9 @@ class PrintMoneyApp(ctk.CTk):
 
             # ── Navegar de vuelta a la vista de configuración ──
             self.navegar("configuracion")
+
+
+App = PrintMoneyApp
 
 
 if __name__ == "__main__":
