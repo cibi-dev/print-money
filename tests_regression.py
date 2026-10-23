@@ -374,5 +374,25 @@ class TestOtros(BaseDB):
         self.assertEqual(len(clientes), 2, "La BD debe guardar los dos clientes")
 
 
+
+class TestResumenAnual(BaseDB):
+    def test_resumen_anual_descuenta_costos_de_pedidos(self):
+        """Verifica que la ganancia anual tome ganancia_pedidos (ingresos - costos pedidos) - gastos."""
+        self._pedido(
+            precio_venta=100.0,
+            costo_material=30.0,
+            costo_tiempo=10.0,
+            fecha="2026-05-10",
+            estado="entregado"
+        )
+        db_manager.agregar_gasto(monto=20.0, categoria_id=None, descripcion="Luz", fecha="2026-05-15")
+
+        resumen = db_manager.obtener_resumen_anual(2026)
+        self.assertEqual(resumen["ingresos"], 100.0)
+        self.assertEqual(resumen["gastos"], 20.0)
+        self.assertEqual(resumen["ganancia_neta"], 40.0)
+        self.assertAlmostEqual(resumen["margen"], 40.0, places=1)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

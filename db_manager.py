@@ -749,7 +749,7 @@ def obtener_resumen_anual(year):
 
     ingresos = r["ingresos"]
     gastos = r2["gastos"]
-    ganancia = ingresos - gastos
+    ganancia = r["ganancia_pedidos"] - gastos
     return {
         "ingresos": ingresos,
         "gastos": gastos,
