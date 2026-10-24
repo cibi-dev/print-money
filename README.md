@@ -7,7 +7,7 @@
 [![UI](https://img.shields.io/badge/UI-CustomTkinter-00FF9D)](https://github.com/TomSchimansky/CustomTkinter)
 [![Database](https://img.shields.io/badge/Database-SQLite%203%20(WAL)-003B57?logo=sqlite&logoColor=white)](https://www.sqlite.org/)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D6?logo=windows&logoColor=white)](https://www.microsoft.com/windows)
-[![Tests](https://img.shields.io/badge/Tests-68%20Passing-brightgreen.svg)](#-testing--quality-assurance)
+[![Tests](https://img.shields.io/badge/Tests-87%20Passing-brightgreen.svg)](#-testing--quality-assurance)
 
 **A sleek, production-ready desktop business management suite tailored for 3D printing services and maker studios.**
 
@@ -161,12 +161,21 @@ The app complies with Windows User Experience guidelines by keeping application 
 
 ```
 print-money/
+├── .github/                   # Workflows & issue/PR templates
 ├── assets/
 │   ├── icons/                 # UI vector icons (Feather icons)
 │   └── screenshots/           # Curated application showcase images
 ├── docs/
 │   ├── internal/              # Engineering specifications & security audit logs
 │   └── plans/                 # Architectural decision records and milestones
+├── scripts/                   # Build and maintenance scripts
+│   ├── build.ps1              # PyInstaller executable build script
+│   ├── build.bat              # Batch wrapper for Windows
+│   └── reparar_inventario.py  # Inventory consistency repair utility
+├── tests/                     # Automated test suite (87 tests)
+│   ├── test_atomic_io.py      # File safety & atomicity unit tests
+│   ├── test_regression.py     # Business logic & CRUD regression tests
+│   └── test_ui_smoke.py       # CustomTkinter headless smoke tests
 ├── ui/                        # Presentation Layer (CustomTkinter views)
 │   ├── dashboard.py           # KPIs, metrics, and monthly overview
 │   ├── orders.py              # Order management and workflow
@@ -189,13 +198,12 @@ print-money/
 │   └── pdf_invoice.py         # ReportLab PDF invoice rendering engine
 ├── db_manager.py              # SQLite schema, migrations & CRUD operations
 ├── main.py                    # Application bootstrap, navigation & window manager
-├── tests_regression.py        # Regression test suite (Data, PDF, i18n, CRUD)
-├── tests_atomic_io.py         # File safety & atomicity unit tests
-├── tests_ui_smoke.py          # UI smoke tests for Tkinter views
 ├── requirements.txt           # Core runtime dependencies
 ├── requirements-build.txt     # Packaging dependencies (PyInstaller)
-├── build.ps1                  # Automated Windows build script
+├── CHANGELOG.md               # Version history
+├── CODE_OF_CONDUCT.md         # Community standards
 ├── CONTRIBUTING.md            # Contribution guidelines & standards
+├── LICENSE                    # MIT License
 └── SECURITY.md                # Vulnerability disclosure policy
 ```
 
@@ -233,17 +241,16 @@ python main.py
 
 ## 🧪 Testing & Quality Assurance
 
-PrintMoney includes a test suite that runs headlessly in memory without mutating production databases:
+PrintMoney includes a comprehensive 87-test suite that runs headlessly in memory without mutating production databases:
 
 ```powershell
-# Run the complete test suite
-python -m unittest tests_atomic_io.py tests_regression.py
+# Run the complete test suite via unittest discovery
+python -m unittest discover -s tests -p "test_*.py"
 ```
 
 ```
-....................................................................
-----------------------------------------------------------------------
-Ran 68 tests in 10.402s
+......................................................................
+Ran 87 tests in 34.122s
 
 OK
 ```
@@ -264,7 +271,7 @@ To produce an independent Windows binary that runs on machines without Python in
 pip install -r requirements-build.txt
 
 # Run the build script
-.\build.ps1
+.\scripts\build.ps1
 ```
 
 The compiled standalone application will be generated in `dist\PrintMoney\` with all assets, icons, and themes bundled.

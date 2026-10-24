@@ -12,7 +12,7 @@ import tempfile
 import sqlite3
 import unittest
 
-SRC = os.path.dirname(os.path.abspath(__file__))
+SRC = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, SRC)
 
 # Aislar la carpeta de datos para que los tests no lean ni escriban en
@@ -850,3 +850,4 @@ class TestPragmas(BaseDB):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+

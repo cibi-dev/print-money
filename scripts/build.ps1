@@ -1,5 +1,6 @@
 $ErrorActionPreference = "Stop"
-Set-Location -LiteralPath $PSScriptRoot
+$RepoRoot = Split-Path -Parent $PSScriptRoot
+Set-Location -LiteralPath $RepoRoot
 
 python -m PyInstaller `
     --noconfirm `

@@ -44,9 +44,9 @@ Feature requests are welcome! Use our **Feature Request** issue template and exp
    - Ensure strings intended for the UI use `utils.i18n.T()` for bilingual support (ES/EN).
 4. **Run the test suite**:
    ```bash
-   python -m unittest tests_atomic_io.py tests_regression.py
+   python -m unittest discover -s tests -p "test_*.py"
    ```
-   All tests must pass before submitting.
+   All 87 tests must pass before submitting.
 5. **Commit your changes** following conventional commit messages:
    ```bash
    git commit -m "feat(inventory): add low stock notification sound"

@@ -12,7 +12,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-SRC = os.path.dirname(os.path.abspath(__file__))
+SRC = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, SRC)
 
 from utils.atomic_io import escribir_json_atomico
@@ -95,3 +95,4 @@ class TestReemplazo(BaseAtomicIO):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+

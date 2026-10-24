@@ -13,7 +13,7 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
-SRC = os.path.dirname(os.path.abspath(__file__))
+SRC = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, SRC)
 
 os.environ.setdefault("PRINTMONEY_DATA_DIR",
@@ -411,3 +411,4 @@ class TestRestoVistas(BaseUI):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
