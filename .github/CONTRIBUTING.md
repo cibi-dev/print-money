@@ -35,7 +35,7 @@ Feature requests are welcome! Use our **Feature Request** issue template and exp
    ```bash
    python -m venv venv
    .\venv\Scripts\activate
-   pip install -r requirements.txt -r requirements-build.txt
+   pip install -r requirements.txt -r scripts/requirements-build.txt
    ```
 3. **Follow the code style**:
    - PEP 8 guidelines for Python code.
@@ -60,3 +60,4 @@ Feature requests are welcome! Use our **Feature Request** issue template and exp
 - **Data Safety**: Write state files using `utils.atomic_io.escribir_json_atomico` to avoid file corruption on unexpected shutdowns.
 
 Thank you for contributing! 🚀
+

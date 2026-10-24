@@ -162,17 +162,23 @@ The app complies with Windows User Experience guidelines by keeping application 
 
 ```
 print-money/
-├── .github/                   # Workflows & issue/PR templates
+├── .github/                   # Workflows, templates, and community standards
+│   ├── workflows/ci.yml       # Automated GitHub Actions test pipeline
+│   ├── CODE_OF_CONDUCT.md     # Contributor Covenant code of conduct
+│   ├── CONTRIBUTING.md        # Contribution guidelines and standards
+│   └── SECURITY.md            # Security policy and disclosure
 ├── assets/
 │   ├── icons/                 # UI vector icons (Feather icons)
 │   └── screenshots/           # Curated application showcase images
 ├── docs/
-│   ├── internal/              # Engineering specifications & security audit logs
-│   └── plans/                 # Architectural decision records and milestones
+│   ├── CHANGELOG.md           # Version release notes
+│   ├── internal/              # DevSecOps & engineering specifications
+│   └── plans/                 # Architectural decision records
 ├── scripts/                   # Build and maintenance scripts
 │   ├── build.ps1              # PyInstaller executable build script
 │   ├── build.bat              # Batch wrapper for Windows
-│   └── reparar_inventario.py  # Inventory consistency repair utility
+│   ├── reparar_inventario.py  # Inventory consistency repair utility
+│   └── requirements-build.txt # Build & packaging dependencies
 ├── tests/                     # Automated test suite (87 tests)
 │   ├── test_atomic_io.py      # File safety & atomicity unit tests
 │   ├── test_regression.py     # Business logic & CRUD regression tests
@@ -200,12 +206,8 @@ print-money/
 ├── db_manager.py              # SQLite schema, migrations & CRUD operations
 ├── main.py                    # Application bootstrap, navigation & window manager
 ├── requirements.txt           # Core runtime dependencies
-├── requirements-build.txt     # Packaging dependencies (PyInstaller)
-├── CHANGELOG.md               # Version history
-├── CODE_OF_CONDUCT.md         # Community standards
-├── CONTRIBUTING.md            # Contribution guidelines & standards
 ├── LICENSE                    # MIT License
-└── SECURITY.md                # Vulnerability disclosure policy
+└── README.md                  # Project documentation
 ```
 
 ---
@@ -269,7 +271,7 @@ To produce an independent Windows binary that runs on machines without Python in
 
 ```powershell
 # Install build dependencies
-pip install -r requirements-build.txt
+pip install -r scripts/requirements-build.txt
 
 # Run the build script
 .\scripts\build.ps1
@@ -282,11 +284,12 @@ The compiled standalone application will be generated in `dist\PrintMoney\` with
 ## 🤝 Contributing
 
 Contributions, issues, and feature requests are welcome!  
-Please read our [Contributing Guidelines](CONTRIBUTING.md) and [Code of Conduct](CODE_OF_CONDUCT.md) before submitting a Pull Request.
+Please read our [Contributing Guidelines](.github/CONTRIBUTING.md) and [Code of Conduct](.github/CODE_OF_CONDUCT.md) before submitting a Pull Request.
 
 ---
 
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
 
