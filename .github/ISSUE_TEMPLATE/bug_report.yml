@@ -1,0 +1,42 @@
+﻿name: Bug report
+description: Create a report to help us improve
+title: \"[BUG]: \"
+labels: [\"bug\"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug!
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear and concise description of what the bug is.
+      placeholder: What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Steps to reproduce the behavior
+      placeholder: 1. Go to '...' 2. Click on '...' 3. See error
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: App version from title/about or exe
+      placeholder: e.g. 1.0.0
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      description: Windows version
+      placeholder: Windows 10/11
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Attach relevant logs from %APPDATA%\\PrintMoney\\printmoney.log if possible
