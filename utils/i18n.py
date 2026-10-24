@@ -21,7 +21,6 @@ STRINGS = {
     "sidebar_calendar":     {"es": "Calendario",            "en": "Calendar"},
     "sidebar_calculator":   {"es": "Calculadora",           "en": "Calculator"},
     "sidebar_settings":     {"es": "Configuración",         "en": "Settings"},
-    "auto_saved":           {"es": "Guardado automático ✓", "en": "Auto-saved ✓"},
     "backup_ok":            {"es": "Backup diario realizado ✓","en": "Daily backup done ✓"},
 
     # ── TUTORIAL ───────────────────────────────────────────────────
@@ -339,8 +338,6 @@ STRINGS = {
     "calc_total_cost":      {"es": "Costo total:",          "en": "Total cost:"},
     "calc_suggested":       {"es": "💰 Precio sugerido",    "en": "💰 Suggested price"},
     "calc_copy_order":      {"es": "📋 Copiar a nuevo pedido","en": "📋 Copy to new order"},
-    "calc_copy_quote":      {"es": "💬 Copiar cotización","en": "💬 Copy quote"},
-    "calc_export_pdf":      {"es": "📄 Exportar PDF",    "en": "📄 Export PDF"},
     "calc_quote":           {"es": "🧾 Crear cotización", "en": "🧾 Create quote"},
     "calc_quote_msg":       {"es": "¡Hola! Te adjunto la cotización:\n\n🔹 Producto: {product}\n🔹 Material: {material}\n⏱️ Tiempo est.: {time}h\n\n💰 Total: ${total:.2f}\n\nQuedo a tu disposición.",
                              "en": "Hi! Here's your quote:\n\n🔹 Product: {product}\n🔹 Material: {material}\n⏱️ Est. time: {time}h\n\n💰 Total: ${total:.2f}\n\nLet me know if you have any questions."},
@@ -375,7 +372,6 @@ STRINGS = {
     "settings_margin":      {"es": "Margen de ganancia objetivo (%)","en": "Target profit margin (%)"},
     "settings_alert_days":  {"es": "Días de antelación para alertas de entrega",
                              "en": "Days in advance for delivery alerts"},
-    "settings_autosave":    {"es": "Minutos entre autoguardados","en": "Minutes between auto-saves"},
     "settings_notif":       {"es": "🔔 Notificaciones y Backup","en": "🔔 Notifications & Backup"},
     "settings_notif_chk":   {"es": "Activar notificaciones de escritorio",
                              "en": "Enable desktop notifications"},

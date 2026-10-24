@@ -33,5 +33,11 @@ config.json
 Thumbs.db
 .DS_Store
 
+# Local workspace / agent files (not part of the app repository)
+/scratch/
+/.commandcode/
+/AGENTS.md
+/SECURITY.md
+
 # Logs
 *.log
