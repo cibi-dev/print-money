@@ -4,6 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/cibi-dev/print-money/blob/main/LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![CI](https://github.com/cibi-dev/print-money/actions/workflows/ci.yml/badge.svg)](https://github.com/cibi-dev/print-money/actions/workflows/ci.yml)
 [![UI](https://img.shields.io/badge/UI-CustomTkinter-00FF9D)](https://github.com/TomSchimansky/CustomTkinter)
 [![Database](https://img.shields.io/badge/Database-SQLite%203%20(WAL)-003B57?logo=sqlite&logoColor=white)](https://www.sqlite.org/)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D6?logo=windows&logoColor=white)](https://www.microsoft.com/windows)
@@ -288,3 +289,4 @@ Please read our [Contributing Guidelines](CONTRIBUTING.md) and [Code of Conduct]
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
